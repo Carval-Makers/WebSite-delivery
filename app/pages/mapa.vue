@@ -138,14 +138,17 @@ let demoInterval = null
 onMounted(async () => {
   // Pega dados do usuário
   const userData = localStorage.getItem('user')
-  if (userData) {
-    try {
-      const user = JSON.parse(userData)
-      userRole.value = user.role
-      userId.value = user.id
-      userName.value = user.name
-    } catch(e) {}
+  if (!userData) {
+    if (import.meta.client) window.location.href = '/'
+    return
   }
+
+  try {
+    const user = JSON.parse(userData)
+    userRole.value = user.role
+    userId.value = user.id
+    userName.value = user.name
+  } catch(e) {}
 
   // Inicializa Mapa
   L = (await import('leaflet')).default
@@ -153,8 +156,8 @@ onMounted(async () => {
 
   map = L.map('map', { zoomControl: false }).setView([-22.549, -41.975], 15)
 
-  // Usando CartoDB Dark Matter com chave de API para evitar limites de uso
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?api_key=cb1_3kso_1_5980a80c1cdabb49033f21fd', {
+  // Usando CartoDB Dark Matter (sem API key para evitar erros)
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
   }).addTo(map)
@@ -177,27 +180,7 @@ onMounted(async () => {
   if (userRole.value === 'delivery') {
     startDeliveryTracking()
     
-    // Funções globais para o Motoboy poder clicar no popup do Leaflet
-    window.startRoute = (lat, lng) => {
-      activeRouteDest = { lat: Number(lat), lng: Number(lng), isRouting: false }
-      isRouting.value = true // Mostra o botão na tela
-      if (currentMotoboyPos) {
-        drawRoute(currentMotoboyPos.lat, currentMotoboyPos.lng, activeRouteDest.lat, activeRouteDest.lng)
-        // Trava a câmera inicial
-        map.setView([currentMotoboyPos.lat, currentMotoboyPos.lng], 18, { animate: true })
-      } else {
-        alert("Buscando sua localização GPS... A rota iniciará em alguns segundos.")
-      }
-    }
-
-    window.stopRoute = () => {
-      activeRouteDest = null
-      isRouting.value = false // Esconde o botão na tela
-      if (routePolyline) {
-        map.removeLayer(routePolyline)
-        routePolyline = null
-      }
-    }
+    // Funções de rota agora estão definidas corretamente dentro do import.meta.client para evitar sobreposição
   } else if (userRole.value === 'admin') {
     startAdminTracking()
     fetchMotoboys() // Precisamos da lista de motoboys para o select de despacho
@@ -372,9 +355,7 @@ const processMotoLocation = async (lat, lng, heading) => {
     if (iconEl) iconEl.style.transform = `rotate(${angle}deg)`
   }
   
-  if (activeRouteDest) {
-    map.setView([lat, lng], map.getZoom(), { animate: true, duration: 1 })
-  }
+  // A câmera agora é livre. Não forçamos map.setView para não atrapalhar o motoboy.
 
   try {
     await $fetch('/api/location', {
@@ -401,7 +382,8 @@ const drawRoute = async (coordsStr, finalNode, isDemo = false) => {
 
       // Ativa o modo de navegação GPS em direção ao ponto final da rota toda
       isRouting.value = true
-      activeRouteDest = { lat: finalNode.lat, lng: finalNode.lng }
+      const ordId = finalNode.orderId || finalNode.id
+      activeRouteDest = { lat: finalNode.lat, lng: finalNode.lng, orderId: ordId }
 
       if (isDemo) {
         demoRouteCoords = latLngs
@@ -430,7 +412,7 @@ if (import.meta.client) {
       // Começa da loja
       const startLat = -22.549
       const startLng = -41.975
-      drawRoute(`${startLng},${startLat};${lng},${lat}`, { lat, lng }, true)
+      drawRoute(`${startLng},${startLat};${lng},${lat}`, { lat, lng, orderId }, true)
       return
     }
 
@@ -442,7 +424,7 @@ if (import.meta.client) {
     navigator.geolocation.getCurrentPosition((position) => {
       const startLat = position.coords.latitude
       const startLng = position.coords.longitude
-      drawRoute(`${startLng},${startLat};${lng},${lat}`, { lat, lng }, false)
+      drawRoute(`${startLng},${startLat};${lng},${lat}`, { lat, lng, orderId }, false)
     })
   }
 
@@ -570,10 +552,25 @@ const startDeliveryTracking = () => {
         const lng = order.lng || Number(order.delivery_address?.longitude)
 
         if (lat && lng && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && (lat !== 0 || lng !== 0)) {
+          const isThisRouteActive = activeRouteDest && String(activeRouteDest.orderId) === String(order.id)
+          
+          let distKm = 999;
+          if (currentMotoboyPos) {
+            distKm = getDistance(currentMotoboyPos.lat, currentMotoboyPos.lng, lat, lng)
+          }
+          const isNear = distKm < 0.2 // menos de 200 metros
+
           let popupHtml = `<b>Sua Entrega #${order.id}</b><br>${order.customer?.name || order.cliente || 'Cliente'}<br>Status: ${order.status}`
-          popupHtml += `<br><button onclick="window.startRoute(${lat}, ${lng}, '${order.id}')" style="margin-top:10px; width:100%; background:#10b981; color:white; border:none; padding:6px; border-radius:4px; font-weight:bold; cursor:pointer;">📍 Iniciar GPS (Traçar Rota)</button>`
-          popupHtml += `<button onclick="window.stopRoute()" style="margin-top:5px; width:100%; background:rgba(239, 68, 68, 0.2); color:#f87171; border:none; padding:6px; border-radius:4px; cursor:pointer;">❌ Parar Rota</button>`
-          popupHtml += `<hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 10px 0;"><button onclick="window.confirmDelivery('${order.id}')" style="width:100%; background:#3b82f6; color:white; border:none; padding:10px; border-radius:4px; font-weight:bold; cursor:pointer; font-size: 14px;">✅ Confirmar Entrega</button>`
+          
+          if (!isThisRouteActive) {
+            popupHtml += `<br><button onclick="window.startRoute(${lat}, ${lng}, '${order.id}')" style="margin-top:10px; width:100%; background:#10b981; color:white; border:none; padding:6px; border-radius:4px; font-weight:bold; cursor:pointer;">📍 Iniciar GPS (Traçar Rota)</button>`
+          } else {
+            popupHtml += `<br><button onclick="window.stopRoute()" style="margin-top:10px; width:100%; background:rgba(239, 68, 68, 0.2); color:#f87171; border:none; padding:6px; border-radius:4px; font-weight:bold; cursor:pointer;">❌ Parar Rota</button>`
+          }
+          
+          if (isNear) {
+            popupHtml += `<hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 10px 0;"><button onclick="window.confirmDelivery('${order.id}')" style="width:100%; background:#3b82f6; color:white; border:none; padding:10px; border-radius:4px; font-weight:bold; cursor:pointer; font-size: 14px;">✅ Confirmar Entrega</button>`
+          }
           
           if (!orderMarkers[order.id]) {
             const marker = L.marker([lat, lng], { icon: orderIcon }).addTo(map)
