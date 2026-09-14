@@ -243,11 +243,15 @@ onMounted(async () => {
           body: { orderId, motoboyId, motoboyName }
         })
         
-        // 2. Avisa o Cardápio Web em background (Fire and Forget para não travar a tela)
+        // 2. Avisa o Cardápio Web para mudar o status para "Saiu para entrega" (released)
         if (orderId !== 'DEMO_TUTORIAL') {
-          $fetch(`/api/cw/api/partner/v1/orders/${orderId}/statuses/dispatched`, { method: 'POST' }).catch((cwError) => {
-            $fetch(`/api/cw/api/partner/v1/orders/${orderId}/statuses/released`, { method: 'POST' }).catch(() => {})
-          })
+          $fetch(`/api/cw/api/partner/v1/orders/${orderId}/dispatch`, { method: 'POST' })
+            .catch((cwError) => {
+              // Se falhar (ex: se o pedido ainda estiver em 'confirmed' e precisar ir para 'ready' primeiro):
+              return $fetch(`/api/cw/api/partner/v1/orders/${orderId}/prepared`, { method: 'POST' })
+                .then(() => $fetch(`/api/cw/api/partner/v1/orders/${orderId}/dispatch`, { method: 'POST' }))
+                .catch((err2) => console.error('Erro ao despachar pedido no Cardápio Web:', err2))
+            })
         }
 
         // 3. Atualização Otimista: Muda localmente para 'released' para a cor virar laranja instantaneamente
@@ -557,9 +561,13 @@ if (import.meta.client) {
       }
       cwOrders.value = cwOrders.value.filter(o => String(o.id) !== String(orderId))
 
-      // 2. Avisa o Cardápio Web que foi concluído
+      // 2. Avisa o Cardápio Web que o pedido foi entregue
       if (orderId !== 'DEMO_TUTORIAL') {
-        await $fetch(`/api/cw/api/partner/v1/orders/${orderId}/statuses/concluded`, { method: 'POST' })
+        await $fetch(`/api/cw/api/partner/v1/orders/${orderId}/delivered`, { method: 'POST' })
+          .catch(async () => {
+            // Se falhar o /delivered (ex: já finalizado ou regras do plano), tenta /finalize
+            return await $fetch(`/api/cw/api/partner/v1/orders/${orderId}/finalize`, { method: 'POST' }).catch(() => {})
+          })
       }
       
       // 3. Remove a atribuição do Supabase para limpar o banco

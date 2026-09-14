@@ -20,7 +20,11 @@ export default defineEventHandler(async (event) => {
 
     let body
     if (method !== 'GET' && method !== 'HEAD') {
-      body = await readBody(event)
+      try {
+        body = await readBody(event)
+      } catch {
+        body = undefined
+      }
     }
 
     const response = await $fetch(targetUrl, {
