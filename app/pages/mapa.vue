@@ -134,7 +134,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 
 // --- ESTADO GERAL ---
 const userRole = ref('')
@@ -275,11 +275,64 @@ onMounted(async () => {
       }
     }
   }
+
+  // Monitora retorno para o navegador para manter a tela ligada se a rota estiver em andamento
+  if (import.meta.client) {
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+  }
 })
 
 onUnmounted(() => {
+  if (import.meta.client) {
+    document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }
+  releaseWakeLock()
   if (trackingInterval) clearInterval(trackingInterval)
   if (map) map.remove()
+})
+
+// --- SCREEN WAKE LOCK (Mantém a tela do celular ligada durante o percurso) ---
+let wakeLock = null
+
+const requestWakeLock = async () => {
+  try {
+    if (import.meta.client && 'wakeLock' in navigator && !wakeLock) {
+      wakeLock = await navigator.wakeLock.request('screen')
+      wakeLock.addEventListener('release', () => {
+        wakeLock = null
+      })
+      console.log('Wake Lock ativado: tela permanecerá ativa durante a rota.')
+    }
+  } catch (err) {
+    console.warn('Wake Lock não suportado ou não autorizado pelo aparelho:', err)
+  }
+}
+
+const releaseWakeLock = async () => {
+  try {
+    if (wakeLock) {
+      await wakeLock.release()
+      wakeLock = null
+      console.log('Wake Lock liberado: tela volta ao repouso normal.')
+    }
+  } catch (err) {
+    console.warn('Erro ao liberar Wake Lock:', err)
+  }
+}
+
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'visible' && isRouting.value) {
+    requestWakeLock()
+  }
+}
+
+// Ativa a tela ligada automaticamente ao traçar rota e desativa ao parar a rota
+watch(isRouting, (newVal) => {
+  if (newVal) {
+    requestWakeLock()
+  } else {
+    releaseWakeLock()
+  }
 })
 
 // --- MÉTODOS DE RASTREAMENTO E ROTA ---
