@@ -387,6 +387,30 @@ if (import.meta.client) {
       routePolyline = null
     }
   }
+
+  window.confirmDelivery = async (orderId) => {
+    if (!confirm('Chegou no cliente? Tem certeza que deseja marcar como ENTREGUE?')) return
+    
+    try {
+      // 1. Otimista UI (Remove instantaneamente do mapa para não travar o motoboy)
+      if (orderMarkers[orderId]) {
+        map.removeLayer(orderMarkers[orderId])
+        delete orderMarkers[orderId]
+      }
+      cwOrders.value = cwOrders.value.filter(o => String(o.id) !== String(orderId))
+
+      // 2. Avisa o Cardápio Web que foi concluído
+      await $fetch(`/api/cw/api/partner/v1/orders/${orderId}/statuses/concluded`, { method: 'POST' })
+      
+      // 3. Remove a atribuição do Supabase para limpar o banco
+      await $fetch(`/api/assign/${orderId}`, { method: 'DELETE' })
+      
+      alert('Entrega confirmada com sucesso! 🍕')
+    } catch (error) {
+      console.error('Erro ao confirmar entrega', error)
+      alert('Aviso: O pedido sumiu da sua tela, mas pode haver lentidão na sincronização com a loja.')
+    }
+  }
 }
 
 const startDeliveryTracking = () => {
@@ -507,6 +531,7 @@ const startDeliveryTracking = () => {
           let popupHtml = `<b>Sua Entrega #${order.id}</b><br>${order.customer?.name || order.cliente || 'Cliente'}<br>Status: ${order.status}`
           popupHtml += `<br><button onclick="window.startRoute(${lat}, ${lng})" style="margin-top:10px; width:100%; background:#10b981; color:white; border:none; padding:6px; border-radius:4px; font-weight:bold; cursor:pointer;">📍 Iniciar GPS (Traçar Rota)</button>`
           popupHtml += `<button onclick="window.stopRoute()" style="margin-top:5px; width:100%; background:rgba(239, 68, 68, 0.2); color:#f87171; border:none; padding:6px; border-radius:4px; cursor:pointer;">❌ Parar Rota</button>`
+          popupHtml += `<hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 10px 0;"><button onclick="window.confirmDelivery('${order.id}')" style="width:100%; background:#3b82f6; color:white; border:none; padding:10px; border-radius:4px; font-weight:bold; cursor:pointer; font-size: 14px;">✅ Confirmar Entrega</button>`
           
           if (!orderMarkers[order.id]) {
             const marker = L.marker([lat, lng], { icon: orderIcon }).addTo(map)
