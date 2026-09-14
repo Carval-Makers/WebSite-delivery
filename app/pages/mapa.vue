@@ -106,38 +106,6 @@ const isRouting = ref(false) // Estado para mostrar/esconder o botão de parar r
 let map = null
 let L = null
 
-// --- GERAÇÃO DE PEDIDOS FALSOS PARA TESTE ---
-// Trocado Math.random() por funções matemáticas determinísticas para 
-// garantir que as coordenadas fiquem 100% iguais no Admin e no Motoboy
-const fakeOrdersCache = []
-for (let i = 1; i <= 15; i++) {
-  // Funções pseudoradômicas determinísticas baseadas no i
-  const pseudoRandom1 = Math.abs(Math.sin(i * 100))
-  const pseudoRandom2 = Math.abs(Math.cos(i * 100))
-  
-  // Como a loja fica perto da praia, vamos jogar as entregas apenas para
-  // o Norte (Lat positiva) e Oeste (Lng negativa) para garantir que caiam na cidade!
-  const latOffset = pseudoRandom1 * 0.02 
-  const lngOffset = -(pseudoRandom2 * 0.03)
-  
-  const minutesAgo = Math.floor(pseudoRandom1 * 85) + 5 // entre 5 e 90 min atrás
-  const createdAt = new Date(Date.now() - minutesAgo * 60000).toISOString()
-  
-  const statuses = ['confirmed', 'ready']
-  const statusIndex = Math.floor(pseudoRandom1 * 10) % 2
-  
-  fakeOrdersCache.push({
-    id: `999${i}`,
-    display_id: `999${i}`,
-    status: statuses[statusIndex],
-    created_at: createdAt,
-    customer: { name: `Cliente ${i} (Teste)` },
-    delivery_address: { 
-      latitude: -22.549 + latOffset, 
-      longitude: -41.975 + lngOffset 
-    }
-  })
-}
 
 // --- ESTADO DO ADMIN ---
 const isPanelOpen = ref(false)
@@ -239,11 +207,9 @@ onMounted(async () => {
         })
         
         // 2. Avisa o Cardápio Web em background (Fire and Forget para não travar a tela)
-        if (String(orderId) !== "99999") {
-          $fetch(`/api/cw/api/partner/v1/orders/${orderId}/statuses/dispatched`, { method: 'POST' }).catch((cwError) => {
-            $fetch(`/api/cw/api/partner/v1/orders/${orderId}/statuses/released`, { method: 'POST' }).catch(() => {})
-          })
-        }
+        $fetch(`/api/cw/api/partner/v1/orders/${orderId}/statuses/dispatched`, { method: 'POST' }).catch((cwError) => {
+          $fetch(`/api/cw/api/partner/v1/orders/${orderId}/statuses/released`, { method: 'POST' }).catch(() => {})
+        })
 
         // 3. Atualização Otimista: Muda localmente para 'released' para a cor virar laranja instantaneamente
         const orderIndex = cwOrders.value.findIndex(o => String(o.id) === String(orderId))
@@ -470,38 +436,7 @@ const startDeliveryTracking = () => {
           }
         },
         async (error) => {
-          // Fallback: se negar o GPS, simula perto da loja (para testes)
-          const fakeLat = -22.549 + (Math.random() - 0.5) * 0.005
-          const fakeLng = -41.975 + (Math.random() - 0.5) * 0.005
-          
-          currentMotoboyPos = { lat: fakeLat, lng: fakeLng }
-
-          // Pino Falso para teste de fallback
-          if (!myMotoboyMarker) {
-            const motoIcon = L.divIcon({
-              html: `<div id="my-moto-icon" style="font-size: 32px; filter: drop-shadow(0px 4px 4px rgba(0,0,0,0.4)); transition: transform 0.5s;">🏍️</div>`,
-              className: 'custom-moto-icon', iconSize: [40, 40], iconAnchor: [20, 20]
-            })
-            myMotoboyMarker = L.marker([fakeLat, fakeLng], { icon: motoIcon }).addTo(map)
-          } else {
-            myMotoboyMarker.setLatLng([fakeLat, fakeLng])
-          }
-
-          if (activeRouteDest) {
-            map.setView([fakeLat, fakeLng], map.getZoom(), { animate: true, duration: 1 })
-          }
-
-          try {
-            await $fetch('/api/location', {
-              method: 'POST',
-              body: {
-                userId: userId.value,
-                name: userName.value,
-                lat: fakeLat,
-                lng: fakeLng
-              }
-            })
-          } catch(e) {}
+          console.error('GPS negado ou indisponível', error)
         }
       )
     }
@@ -526,18 +461,12 @@ const startDeliveryTracking = () => {
       const summaryResponse = await $fetch('/api/cw/api/partner/v1/orders')
       const allOrdersSummary = summaryResponse.data || summaryResponse || []
       
-      // Injeta os 15 fakes no motoboy também
-      allOrdersSummary.push(...fakeOrdersCache)
       
       // Filtra os que são MEUS e estão ativos
       const activeOrderStatuses = new Set(['waiting_confirmation', 'pending_payment', 'pending_online_payment', 'scheduled_confirmed', 'confirmed', 'ready', 'released', 'canceling'])
       const myOrdersSummary = allOrdersSummary.filter(s => activeOrderStatuses.has(s.status) && myOrderIds.has(String(s.id)))
 
       const fullOrders = await Promise.all(myOrdersSummary.map(async (summary) => {
-        // Se for um dos nossos fakes, apenas retorna direto
-        if (String(summary.id).startsWith("999")) {
-          return summary
-        }
         try {
           const detail = await $fetch(`/api/cw/api/partner/v1/orders/${summary.id}`)
           return { ...summary, ...detail }
@@ -792,8 +721,6 @@ const fetchCwOrders = async () => {
       }
     }))
     
-    // PEDIDOS FALSOS INJETADOS PARA TESTE
-    fullOrders.push(...fakeOrdersCache)
 
     cwOrders.value = fullOrders
 
