@@ -148,8 +148,8 @@ onMounted(async () => {
 
   map = L.map('map', { zoomControl: false }).setView([-22.549, -41.975], 15)
 
-  // Usando CartoDB Dark Matter para um mapa com modo escuro premium
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  // Usando CartoDB Dark Matter com chave de API para evitar limites de uso
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?api_key=cb1_3kso_1_5980a80c1cdabb49033f21fd', {
     maxZoom: 19,
     attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
   }).addTo(map)
