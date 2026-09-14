@@ -221,9 +221,11 @@ onMounted(async () => {
         })
         
         // 2. Avisa o Cardápio Web em background (Fire and Forget para não travar a tela)
-        $fetch(`/api/cw/api/partner/v1/orders/${orderId}/statuses/dispatched`, { method: 'POST' }).catch((cwError) => {
-          $fetch(`/api/cw/api/partner/v1/orders/${orderId}/statuses/released`, { method: 'POST' }).catch(() => {})
-        })
+        if (orderId !== 'DEMO_TUTORIAL') {
+          $fetch(`/api/cw/api/partner/v1/orders/${orderId}/statuses/dispatched`, { method: 'POST' }).catch((cwError) => {
+            $fetch(`/api/cw/api/partner/v1/orders/${orderId}/statuses/released`, { method: 'POST' }).catch(() => {})
+          })
+        }
 
         // 3. Atualização Otimista: Muda localmente para 'released' para a cor virar laranja instantaneamente
         const orderIndex = cwOrders.value.findIndex(o => String(o.id) === String(orderId))
@@ -467,7 +469,9 @@ if (import.meta.client) {
       cwOrders.value = cwOrders.value.filter(o => String(o.id) !== String(orderId))
 
       // 2. Avisa o Cardápio Web que foi concluído
-      await $fetch(`/api/cw/api/partner/v1/orders/${orderId}/statuses/concluded`, { method: 'POST' })
+      if (orderId !== 'DEMO_TUTORIAL') {
+        await $fetch(`/api/cw/api/partner/v1/orders/${orderId}/statuses/concluded`, { method: 'POST' })
+      }
       
       // 3. Remove a atribuição do Supabase para limpar o banco
       await $fetch(`/api/assign/${orderId}`, { method: 'DELETE' })
@@ -533,14 +537,16 @@ const startDeliveryTracking = () => {
       }))
 
       // INJEÇÃO DO PEDIDO TUTORIAL (DEMO)
-      fullOrders.push({
-        id: 'DEMO_TUTORIAL',
-        status: 'ready',
-        created_at: new Date().toISOString(),
-        customer: { name: 'Joãozinho (Modo Tutorial)' },
-        lat: -22.540,
-        lng: -41.970
-      })
+      if (myOrderIds.has('DEMO_TUTORIAL')) {
+        fullOrders.push({
+          id: 'DEMO_TUTORIAL',
+          status: 'ready',
+          created_at: new Date().toISOString(),
+          customer: { name: 'Joãozinho (Modo Tutorial)' },
+          lat: -22.540,
+          lng: -41.970
+        })
+      }
 
       cwOrders.value = fullOrders
 
@@ -791,6 +797,17 @@ const fetchCwOrders = async () => {
       }
     }))
     
+    // INJEÇÃO DO PEDIDO TUTORIAL PARA O ADMIN PODER ALOCAR
+    if (!fullOrders.find(o => o.id === 'DEMO_TUTORIAL')) {
+      fullOrders.push({
+        id: 'DEMO_TUTORIAL',
+        status: 'ready',
+        created_at: new Date().toISOString(),
+        customer: { name: 'Joãozinho (Modo Tutorial)' },
+        lat: -22.540,
+        lng: -41.970
+      })
+    }
 
     cwOrders.value = fullOrders
 
