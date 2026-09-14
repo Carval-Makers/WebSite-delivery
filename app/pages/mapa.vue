@@ -156,10 +156,10 @@ onMounted(async () => {
 
   map = L.map('map', { zoomControl: false }).setView([-22.549, -41.975], 15)
 
-  // Usando CartoDB Dark Matter (sem API key para evitar erros)
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png', {
+  // Usando OpenStreetMap Padrão (Claro e gratuito)
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+    attribution: '&copy; OpenStreetMap contributors'
   }).addTo(map)
 
   // Marcador fixo da Loja usando DivIcon para não quebrar a imagem em produção
@@ -312,10 +312,11 @@ const calculateBestRoute = () => {
     // Atualiza visualmente a prioridade dos pinos para o Motoboy saber a ordem
     ordered.forEach((node, idx) => {
        const orderNum = idx + 1
+       const pinText = node.id === 'DEMO_TUTORIAL' ? 'Demonstrativo' : `#${orderNum}`
        const numIcon = L.divIcon({
-          html: `<div class="order-pin-icon" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">#${orderNum}</div>`,
+          html: `<div class="order-pin-icon" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">${pinText}</div>`,
           className: 'custom-moto-icon',
-          iconSize: [40, 40],
+          iconSize: null,
           iconAnchor: [20, 20]
        })
        node.marker.setIcon(numIcon)
@@ -706,10 +707,11 @@ const updateAdminPins = async () => {
         const pinStyle = `background: ${pinGradient};`
         
         // Ícone Numérico Dinâmico
+        const pinText = order.id === 'DEMO_TUTORIAL' ? 'Demonstrativo' : `#${orderNum}`
         const numberIcon = L.divIcon({
-          html: `<div class="order-pin-icon" style="${pinStyle}">#${orderNum}</div>`,
+          html: `<div class="order-pin-icon" style="${pinStyle}">${pinText}</div>`,
           className: 'custom-moto-icon',
-          iconSize: [40, 40],
+          iconSize: null,
           iconAnchor: [20, 20],
           popupAnchor: [0, -20]
         })
@@ -1019,8 +1021,10 @@ const triggerStopRoute = () => {
   color: white;
   font-weight: 800;
   font-size: 14px;
-  border-radius: 50%;
-  width: 36px;
+  border-radius: 20px;
+  padding: 0 10px;
+  min-width: 36px;
+  width: max-content;
   height: 36px;
   display: flex;
   align-items: center;
