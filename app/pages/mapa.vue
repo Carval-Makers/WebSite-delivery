@@ -153,8 +153,16 @@ onMounted(async () => {
     attribution: '&copy; OpenStreetMap contributors'
   }).addTo(map)
 
-  // Marcador fixo da Loja
-  const storeMarker = L.marker([-22.549, -41.975]).addTo(map)
+  // Marcador fixo da Loja usando DivIcon para não quebrar a imagem em produção
+  const storeIcon = L.divIcon({
+    html: '<div style="font-size: 32px; filter: drop-shadow(0px 4px 4px rgba(0,0,0,0.4));">🏪</div>',
+    className: 'custom-moto-icon',
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+    popupAnchor: [0, -20]
+  })
+  
+  const storeMarker = L.marker([-22.549, -41.975], { icon: storeIcon }).addTo(map)
   storeMarker.bindPopup("<b>Loja / Base</b><br>Alameda Campomar, 1435").openPopup()
 
   L.control.zoom({ position: 'bottomleft' }).addTo(map)
