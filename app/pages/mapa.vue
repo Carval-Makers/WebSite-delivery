@@ -312,11 +312,11 @@ const calculateBestRoute = () => {
     // Atualiza visualmente a prioridade dos pinos para o Motoboy saber a ordem
     ordered.forEach((node, idx) => {
        const orderNum = idx + 1
-       const pinText = node.id === 'DEMO_TUTORIAL' ? 'Demonstrativo' : `#${orderNum}`
+       const labelHtml = node.id === 'DEMO_TUTORIAL' ? `<div style="position:absolute; top:-30px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.8); color:#f59e0b; padding:2px 8px; border-radius:10px; font-size:11px; white-space:nowrap; font-weight:bold;">Demonstrativo</div>` : ''
        const numIcon = L.divIcon({
-          html: `<div class="order-pin-icon" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">${pinText}</div>`,
+          html: `<div style="position:relative;">${labelHtml}<div class="order-pin-icon" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">#${orderNum}</div></div>`,
           className: 'custom-moto-icon',
-          iconSize: null,
+          iconSize: [40, 40],
           iconAnchor: [20, 20]
        })
        node.marker.setIcon(numIcon)
@@ -704,11 +704,11 @@ const updateAdminPins = async () => {
         const pinStyle = `background: ${pinGradient};`
         
         // Ícone Numérico Dinâmico
-        const pinText = order.id === 'DEMO_TUTORIAL' ? 'Demonstrativo' : `#${orderNum}`
+        const labelHtml = order.id === 'DEMO_TUTORIAL' ? `<div style="position:absolute; top:-30px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.8); color:#f59e0b; padding:2px 8px; border-radius:10px; font-size:11px; white-space:nowrap; font-weight:bold;">Demonstrativo</div>` : ''
         const numberIcon = L.divIcon({
-          html: `<div class="order-pin-icon" style="${pinStyle}">${pinText}</div>`,
+          html: `<div style="position:relative;">${labelHtml}<div class="order-pin-icon" style="${pinStyle}">#${orderNum}</div></div>`,
           className: 'custom-moto-icon',
-          iconSize: null,
+          iconSize: [40, 40],
           iconAnchor: [20, 20],
           popupAnchor: [0, -20]
         })
@@ -1018,10 +1018,8 @@ const triggerStopRoute = () => {
   color: white;
   font-weight: 800;
   font-size: 14px;
-  border-radius: 20px;
-  padding: 0 10px;
-  min-width: 36px;
-  width: max-content;
+  border-radius: 50%;
+  width: 36px;
   height: 36px;
   display: flex;
   align-items: center;
