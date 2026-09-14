@@ -130,6 +130,11 @@ let currentMotoboyPos = null
 let lastMotoboyPos = null
 let myMotoboyMarker = null
 
+let isDemoMode = false
+let demoRouteCoords = []
+let demoIndex = 0
+let demoInterval = null
+
 onMounted(async () => {
   // Pega dados do usuário
   const userData = localStorage.getItem('user')
@@ -342,7 +347,42 @@ const calculateBestRoute = () => {
   })
 }
 
-const drawRoute = async (coordsStr, finalNode) => {
+const processMotoLocation = async (lat, lng, heading) => {
+  currentMotoboyPos = { lat, lng }
+  
+  let angle = heading || 0
+  if (heading === null && lastMotoboyPos) {
+    const dy = lat - lastMotoboyPos.lat
+    const dx = Math.cos(Math.PI / 180 * lastMotoboyPos.lat) * (lng - lastMotoboyPos.lng)
+    angle = Math.atan2(dx, dy) * 180 / Math.PI
+  }
+  lastMotoboyPos = { lat, lng }
+
+  if (!myMotoboyMarker) {
+    const motoIcon = L.divIcon({
+      html: `<div id="my-moto-icon" style="font-size: 32px; filter: drop-shadow(0px 4px 4px rgba(0,0,0,0.4)); transform: rotate(${angle}deg); transition: transform 0.5s;">🏍️</div>`,
+      className: 'custom-moto-icon', iconSize: [40, 40], iconAnchor: [20, 20]
+    })
+    myMotoboyMarker = L.marker([lat, lng], { icon: motoIcon }).addTo(map)
+  } else {
+    myMotoboyMarker.setLatLng([lat, lng])
+    const iconEl = document.getElementById('my-moto-icon')
+    if (iconEl) iconEl.style.transform = `rotate(${angle}deg)`
+  }
+  
+  if (activeRouteDest) {
+    map.setView([lat, lng], map.getZoom(), { animate: true, duration: 1 })
+  }
+
+  try {
+    await $fetch('/api/location', {
+      method: 'POST',
+      body: { userId: userId.value, name: userName.value, lat, lng }
+    })
+  } catch (e) {}
+}
+
+const drawRoute = async (coordsStr, finalNode, isDemo = false) => {
   try {
     const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`)
     const data = await response.json()
@@ -360,6 +400,21 @@ const drawRoute = async (coordsStr, finalNode) => {
       // Ativa o modo de navegação GPS em direção ao ponto final da rota toda
       isRouting.value = true
       activeRouteDest = { lat: finalNode.lat, lng: finalNode.lng }
+
+      if (isDemo) {
+        demoRouteCoords = latLngs
+        demoIndex = 0
+        if (demoInterval) clearInterval(demoInterval)
+        demoInterval = setInterval(() => {
+          if (demoIndex >= demoRouteCoords.length) {
+            clearInterval(demoInterval)
+            return
+          }
+          const [dLat, dLng] = demoRouteCoords[demoIndex]
+          processMotoLocation(dLat, dLng, null)
+          demoIndex += 2 // pula pontos para simular velocidade
+        }, 1000)
+      }
     }
   } catch (error) {
     console.error('Erro ao traçar rota', error)
@@ -367,7 +422,17 @@ const drawRoute = async (coordsStr, finalNode) => {
 }
 
 if (import.meta.client) {
-  window.startRoute = (lat, lng) => {
+  window.startRoute = (lat, lng, orderId) => {
+    if (orderId === 'DEMO_TUTORIAL') {
+      isDemoMode = true
+      // Começa da loja
+      const startLat = -22.549
+      const startLng = -41.975
+      drawRoute(`${startLng},${startLat};${lng},${lat}`, { lat, lng }, true)
+      return
+    }
+
+    isDemoMode = false
     if (!navigator.geolocation) {
       alert('Geolocalização não suportada.')
       return
@@ -375,13 +440,15 @@ if (import.meta.client) {
     navigator.geolocation.getCurrentPosition((position) => {
       const startLat = position.coords.latitude
       const startLng = position.coords.longitude
-      drawRoute(`${startLng},${startLat};${lng},${lat}`, { lat, lng })
+      drawRoute(`${startLng},${startLat};${lng},${lat}`, { lat, lng }, false)
     })
   }
 
   window.stopRoute = () => {
     activeRouteDest = null
     isRouting.value = false
+    isDemoMode = false
+    if (demoInterval) clearInterval(demoInterval)
     if (routePolyline) {
       map.removeLayer(routePolyline)
       routePolyline = null
@@ -406,6 +473,10 @@ if (import.meta.client) {
       await $fetch(`/api/assign/${orderId}`, { method: 'DELETE' })
       
       alert('Entrega confirmada com sucesso! 🍕')
+      
+      if (orderId === 'DEMO_TUTORIAL') {
+        window.stopRoute()
+      }
     } catch (error) {
       console.error('Erro ao confirmar entrega', error)
       alert('Aviso: O pedido sumiu da sua tela, mas pode haver lentidão na sincronização com a loja.')
@@ -416,59 +487,14 @@ if (import.meta.client) {
 const startDeliveryTracking = () => {
   // Motoboy envia localização a cada 5 segundos
   const sendLocation = () => {
+    if (isDemoMode) return // O demoInterval está rodando rápido (1s), não atrapalhe com GPS lento
+
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const lat = position.coords.latitude
-          const lng = position.coords.longitude
-          const heading = position.coords.heading // Direção do compasso se o celular suportar
-          
-          currentMotoboyPos = { lat, lng }
-          
-          // Calcula o ângulo para girar a moto
-          let angle = heading || 0
-          if (heading === null && lastMotoboyPos) {
-            const dy = lat - lastMotoboyPos.lat
-            const dx = Math.cos(Math.PI / 180 * lastMotoboyPos.lat) * (lng - lastMotoboyPos.lng)
-            angle = Math.atan2(dx, dy) * 180 / Math.PI
-          }
-          lastMotoboyPos = { lat, lng }
-
-          // Desenha ou Atualiza o Pino do PRÓPRIO Motoboy
-          if (!myMotoboyMarker) {
-            const motoIcon = L.divIcon({
-              html: `<div id="my-moto-icon" style="font-size: 32px; filter: drop-shadow(0px 4px 4px rgba(0,0,0,0.4)); transform: rotate(${angle}deg); transition: transform 0.5s;">🏍️</div>`,
-              className: 'custom-moto-icon',
-              iconSize: [40, 40],
-              iconAnchor: [20, 20]
-            })
-            myMotoboyMarker = L.marker([lat, lng], { icon: motoIcon }).addTo(map)
-          } else {
-            myMotoboyMarker.setLatLng([lat, lng])
-            const iconEl = document.getElementById('my-moto-icon')
-            if (iconEl) iconEl.style.transform = `rotate(${angle}deg)`
-          }
-          
-          if (activeRouteDest) {
-            // Se está roteando, trava a câmera no motoboy mas preserva o zoom atual do usuário
-            map.setView([lat, lng], map.getZoom(), { animate: true, duration: 1 })
-          }
-
-          try {
-            await $fetch('/api/location', {
-              method: 'POST',
-              body: {
-                userId: userId.value,
-                name: userName.value,
-                lat: position.coords.latitude,
-                lng: position.coords.longitude
-              }
-            })
-          } catch (e) {
-            console.error('Erro ao enviar localização', e)
-          }
+        (position) => {
+          processMotoLocation(position.coords.latitude, position.coords.longitude, position.coords.heading)
         },
-        async (error) => {
+        (error) => {
           console.error('GPS negado ou indisponível', error)
         }
       )
@@ -506,6 +532,16 @@ const startDeliveryTracking = () => {
         } catch (e) { return summary }
       }))
 
+      // INJEÇÃO DO PEDIDO TUTORIAL (DEMO)
+      fullOrders.push({
+        id: 'DEMO_TUTORIAL',
+        status: 'ready',
+        created_at: new Date().toISOString(),
+        customer: { name: 'Joãozinho (Modo Tutorial)' },
+        lat: -22.540,
+        lng: -41.970
+      })
+
       cwOrders.value = fullOrders
 
       const currentOrderIds = new Set(fullOrders.map(o => String(o.id)))
@@ -529,7 +565,7 @@ const startDeliveryTracking = () => {
 
         if (lat && lng && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && (lat !== 0 || lng !== 0)) {
           let popupHtml = `<b>Sua Entrega #${order.id}</b><br>${order.customer?.name || order.cliente || 'Cliente'}<br>Status: ${order.status}`
-          popupHtml += `<br><button onclick="window.startRoute(${lat}, ${lng})" style="margin-top:10px; width:100%; background:#10b981; color:white; border:none; padding:6px; border-radius:4px; font-weight:bold; cursor:pointer;">📍 Iniciar GPS (Traçar Rota)</button>`
+          popupHtml += `<br><button onclick="window.startRoute(${lat}, ${lng}, '${order.id}')" style="margin-top:10px; width:100%; background:#10b981; color:white; border:none; padding:6px; border-radius:4px; font-weight:bold; cursor:pointer;">📍 Iniciar GPS (Traçar Rota)</button>`
           popupHtml += `<button onclick="window.stopRoute()" style="margin-top:5px; width:100%; background:rgba(239, 68, 68, 0.2); color:#f87171; border:none; padding:6px; border-radius:4px; cursor:pointer;">❌ Parar Rota</button>`
           popupHtml += `<hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 10px 0;"><button onclick="window.confirmDelivery('${order.id}')" style="width:100%; background:#3b82f6; color:white; border:none; padding:10px; border-radius:4px; font-weight:bold; cursor:pointer; font-size: 14px;">✅ Confirmar Entrega</button>`
           
