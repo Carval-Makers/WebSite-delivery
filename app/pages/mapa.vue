@@ -284,6 +284,20 @@ onUnmounted(() => {
 
 // --- MÉTODOS DE RASTREAMENTO E ROTA ---
 
+const getOrderNumber = (order, fallbackIndex) => {
+  if (!order) return fallbackIndex !== undefined ? fallbackIndex + 1 : ''
+  if (order.id === 'DEMO_TUTORIAL') return 'Demo'
+
+  // Prioriza o identificador amigável/oficial do Cardápio Web (display_id, order_number, etc.)
+  const rawNum = order.display_id ?? order.order_number ?? order.number ?? order.short_id ?? order.code ?? order.id
+  if (rawNum !== undefined && rawNum !== null && String(rawNum).trim() !== '') {
+    const cleaned = String(rawNum).trim()
+    return cleaned.startsWith('#') ? cleaned.slice(1) : cleaned
+  }
+
+  return fallbackIndex !== undefined ? fallbackIndex + 1 : ''
+}
+
 const getDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371; // km
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -568,6 +582,16 @@ const startDeliveryTracking = () => {
         })
       }
 
+      // Ordena de forma determinística por data de criação (mais antigos primeiro)
+      fullOrders.sort((a, b) => {
+        if (a.id === 'DEMO_TUTORIAL') return 1
+        if (b.id === 'DEMO_TUTORIAL') return -1
+        const timeA = a.created_at ? new Date(a.created_at).getTime() : 0
+        const timeB = b.created_at ? new Date(b.created_at).getTime() : 0
+        if (timeA !== timeB) return timeA - timeB
+        return String(a.id).localeCompare(String(b.id), undefined, { numeric: true })
+      })
+
       cwOrders.value = fullOrders
 
       const currentOrderIds = new Set(fullOrders.map(o => String(o.id)))
@@ -598,7 +622,8 @@ const startDeliveryTracking = () => {
           }
           const isNear = distKm < 0.2 // menos de 200 metros
 
-          let popupHtml = `<b>Sua Entrega #${order.id}</b><br>${order.customer?.name || order.cliente || 'Cliente'}<br>Status: ${order.status}`
+          const orderNum = getOrderNumber(order)
+          let popupHtml = `<b>Sua Entrega #${orderNum}</b><br>${order.customer?.name || order.cliente || 'Cliente'}<br>Status: ${order.status}`
           
           if (!isThisRouteActive) {
             popupHtml += `<br><button onclick="window.startRoute(${lat}, ${lng}, '${order.id}')" style="margin-top:10px; width:100%; background:#10b981; color:white; border:none; padding:6px; border-radius:4px; font-weight:bold; cursor:pointer;">📍 Iniciar GPS (Traçar Rota)</button>`
@@ -758,7 +783,7 @@ const updateAdminPins = async () => {
     cwOrders.value.forEach((order, index) => {
       const lat = order.lat || Number(order.delivery_address?.latitude)
       const lng = order.lng || Number(order.delivery_address?.longitude)
-      const orderNum = index + 1
+      const orderNum = getOrderNumber(order, index)
       const orderIdStr = String(order.id)
 
       if (lat && lng && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && (lat !== 0 || lng !== 0)) {
@@ -873,6 +898,17 @@ const fetchCwOrders = async () => {
       }
     }))
     
+    // Ordena de forma determinística por data de criação (mais antigos primeiro)
+    // para que a chegada de novos pedidos não altere a posição dos pedidos já existentes
+    fullOrders.sort((a, b) => {
+      if (a.id === 'DEMO_TUTORIAL') return 1
+      if (b.id === 'DEMO_TUTORIAL') return -1
+      const timeA = a.created_at ? new Date(a.created_at).getTime() : 0
+      const timeB = b.created_at ? new Date(b.created_at).getTime() : 0
+      if (timeA !== timeB) return timeA - timeB
+      return String(a.id).localeCompare(String(b.id), undefined, { numeric: true })
+    })
+
     cwOrders.value = fullOrders
 
     // Aciona a repintura dos pinos
@@ -1118,9 +1154,10 @@ const triggerStopRoute = () => {
   color: white;
   font-weight: 800;
   font-size: 14px;
-  border-radius: 50%;
-  width: 36px;
+  border-radius: 18px;
+  min-width: 36px;
   height: 36px;
+  padding: 0 4px;
   display: flex;
   align-items: center;
   justify-content: center;
