@@ -982,19 +982,36 @@ const triggerStopRoute = () => {
 
 .fab-motoboy-parar {
   position: absolute;
-  bottom: 30px;
-  right: 30px;
+  top: 20px;
+  left: 20px;
   z-index: 1000;
   border-radius: 30px;
   padding: 12px 24px;
   background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
   color: white; border: none; font-weight: 600; cursor: pointer; transition: var(--transition);
   box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);
-  animation: slideUpFade 0.3s ease-out;
+  animation: slideDownFade 0.3s ease-out;
 }
 .fab-motoboy-parar:hover {
   transform: translateY(-2px);
   box-shadow: 0 10px 20px -10px rgba(239, 68, 68, 0.6);
+}
+
+@keyframes slideDownFade {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 600px) {
+  .fab-motoboy-parar {
+    top: 16px;
+    left: 16px;
+    padding: 10px 18px;
+    font-size: 14px;
+  }
+  .map-overlay-top {
+    top: 70px;
+  }
 }
 
 /* Painel / Modal Flutuante */
