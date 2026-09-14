@@ -27,6 +27,15 @@
       🏍️ Motoboy
     </button>
 
+    <!-- Fab Admin "Demonstrativo" -->
+    <button 
+      v-if="userRole === 'admin'" 
+      class="fab-demo btn-primary"
+      @click="toggleDemoPanel"
+    >
+      🎮 Demonstrativo
+    </button>
+
     <!-- Fab Motoboy "Parar Rota" -->
     <button 
       v-if="userRole === 'delivery' && isRouting" 
@@ -46,6 +55,35 @@
       ⭐ Melhor Rota
     </button>
 
+
+    <!-- Painel Lateral / Modal Demonstrativo -->
+    <div v-if="isDemoPanelOpen && userRole === 'admin'" class="panel-overlay">
+      <div class="glass-panel delivery-panel" style="max-height: 400px;">
+        <div class="panel-header">
+          <h2>Simulador</h2>
+          <button class="btn-icon" @click="toggleDemoPanel">❌</button>
+        </div>
+        <div class="panel-content" style="padding: 15px;">
+          <p style="margin-bottom: 15px; font-size: 14px; color: var(--color-text-secondary);">
+            Envie uma corrida fantasma para um motoboy testar o app na rua.
+          </p>
+          
+          <select v-model="selectedDemoMotoboy" class="form-input" style="width:100%; margin-bottom: 15px;">
+            <option value="">-- Selecione o Motoboy --</option>
+            <option v-for="boy in motoboys" :key="boy.id" :value="boy.id">
+              {{ boy.name }}
+            </option>
+          </select>
+          
+          <button class="btn-primary" style="width: 100%; padding: 12px; margin-bottom: 10px;" @click="assignDemo">
+            🚀 Iniciar Simulação
+          </button>
+          <button class="btn-danger" style="width: 100%; padding: 12px;" @click="unassignDemo">
+            🛑 Cancelar Simulação
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- Painel Lateral / Modal Glassmorphism -->
     <div v-if="isPanelOpen" class="panel-overlay">
@@ -109,6 +147,8 @@ let L = null
 
 // --- ESTADO DO ADMIN ---
 const isPanelOpen = ref(false)
+const isDemoPanelOpen = ref(false)
+const selectedDemoMotoboy = ref('')
 const showAddForm = ref(false)
 const motoboys = ref([])
 const cwOrders = ref([])
@@ -649,10 +689,50 @@ const startAdminTracking = () => {
 
 
 // --- MÉTODOS DO PAINEL ADMIN ---
+const toggleDemoPanel = () => {
+  isDemoPanelOpen.value = !isDemoPanelOpen.value
+  if (isDemoPanelOpen.value) {
+    isPanelOpen.value = false
+    if (motoboys.value.length === 0) fetchMotoboys()
+  }
+}
+
 const togglePanel = () => {
   isPanelOpen.value = !isPanelOpen.value
-  if (isPanelOpen.value && motoboys.value.length === 0) {
-    fetchMotoboys()
+  if (isPanelOpen.value) {
+    isDemoPanelOpen.value = false
+    if (motoboys.value.length === 0) fetchMotoboys()
+  }
+}
+
+const assignDemo = async () => {
+  if (!selectedDemoMotoboy.value) {
+    alert('Selecione um motoboy primeiro!')
+    return
+  }
+  const boyId = Number(selectedDemoMotoboy.value)
+  const boy = motoboys.value.find(m => m.id === boyId)
+  if (!boy) return
+  
+  try {
+    await $fetch('/api/assign', {
+      method: 'POST',
+      body: { orderId: 'DEMO_TUTORIAL', motoboyId: boy.id, motoboyName: boy.name }
+    })
+    alert(`Modo Tutorial ativado para o motoboy ${boy.name}!`)
+    toggleDemoPanel()
+  } catch(e) {
+    alert('Erro ao iniciar simulação.')
+  }
+}
+
+const unassignDemo = async () => {
+  try {
+    await $fetch(`/api/assign/DEMO_TUTORIAL`, { method: 'DELETE' })
+    alert('Modo Tutorial encerrado!')
+    toggleDemoPanel()
+  } catch(e) {
+    alert('Erro ao encerrar simulação.')
   }
 }
 
@@ -793,18 +873,6 @@ const fetchCwOrders = async () => {
       }
     }))
     
-    // INJEÇÃO DO PEDIDO TUTORIAL PARA O ADMIN PODER ALOCAR
-    if (!fullOrders.find(o => o.id === 'DEMO_TUTORIAL')) {
-      fullOrders.push({
-        id: 'DEMO_TUTORIAL',
-        status: 'ready',
-        created_at: new Date().toISOString(),
-        customer: { name: 'Joãozinho (Modo Tutorial)' },
-        lat: -22.540,
-        lng: -41.970
-      })
-    }
-
     cwOrders.value = fullOrders
 
     // Aciona a repintura dos pinos
@@ -895,6 +963,21 @@ const triggerStopRoute = () => {
   border-radius: 30px;
   padding: 12px 24px;
   box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);
+}
+
+.fab-demo {
+  position: absolute;
+  bottom: 90px; /* Above motoboy button */
+  right: 30px;
+  z-index: 1000;
+  border-radius: 30px;
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: white; border: none; font-weight: 600; cursor: pointer;
+  box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);
+}
+.fab-demo:hover {
+  transform: translateY(-2px);
 }
 
 .fab-motoboy-parar {
