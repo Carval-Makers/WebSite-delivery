@@ -148,9 +148,10 @@ onMounted(async () => {
 
   map = L.map('map', { zoomControl: false }).setView([-22.549, -41.975], 15)
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  // Usando CartoDB Dark Matter para um mapa com modo escuro premium
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors'
+    attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
   }).addTo(map)
 
   // Marcador fixo da Loja usando DivIcon para não quebrar a imagem em produção
