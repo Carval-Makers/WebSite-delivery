@@ -441,7 +441,6 @@ if (import.meta.client) {
   }
 
   window.confirmDelivery = async (orderId) => {
-    if (!confirm('Chegou no cliente? Tem certeza que deseja marcar como ENTREGUE?')) return
     
     try {
       // 1. Otimista UI (Remove instantaneamente do mapa para não travar o motoboy)
@@ -458,8 +457,6 @@ if (import.meta.client) {
       
       // 3. Remove a atribuição do Supabase para limpar o banco
       await $fetch(`/api/assign/${orderId}`, { method: 'DELETE' })
-      
-      alert('Entrega confirmada com sucesso! 🍕')
       
       if (orderId === 'DEMO_TUTORIAL') {
         window.stopRoute()
