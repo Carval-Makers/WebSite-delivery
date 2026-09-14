@@ -1,0 +1,68 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "name": "Administrador",
+      "login": "admin",
+      "password": "123",
+      "role": "admin"
+    },
+    {
+      "id": 2,
+      "name": "LK",
+      "login": "LK",
+      "password": "102030",
+      "role": "delivery"
+    }
+  ],
+  "products": [],
+  "categories": [],
+  "orders": [],
+  "online_locations": [
+    {
+      "userId": 2,
+      "name": "LK",
+      "lat": -22.5396,
+      "lng": -41.9755,
+      "lastUpdate": "2026-09-14T16:35:57.454Z"
+    }
+  ],
+  "assigned_orders": [
+    {
+      "orderId": "9994",
+      "motoboyId": 2,
+      "motoboyName": "LK",
+      "assignedAt": "2026-09-14T10:18:49.539Z"
+    },
+    {
+      "orderId": "99913",
+      "motoboyId": 2,
+      "motoboyName": "LK",
+      "assignedAt": "2026-09-14T10:18:52.792Z"
+    },
+    {
+      "orderId": "9995",
+      "motoboyId": 2,
+      "motoboyName": "LK",
+      "assignedAt": "2026-09-14T10:19:00.734Z"
+    },
+    {
+      "orderId": "99915",
+      "motoboyId": 2,
+      "motoboyName": "LK",
+      "assignedAt": "2026-09-14T10:19:06.577Z"
+    },
+    {
+      "orderId": "9998",
+      "motoboyId": 2,
+      "motoboyName": "LK",
+      "assignedAt": "2026-09-14T10:19:09.193Z"
+    },
+    {
+      "orderId": "99911",
+      "motoboyId": 2,
+      "motoboyName": "LK",
+      "assignedAt": "2026-09-14T10:19:12.007Z"
+    }
+  ]
+}
