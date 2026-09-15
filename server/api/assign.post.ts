@@ -17,6 +17,9 @@ export default defineEventHandler(async (event) => {
       assignedat: new Date().toISOString()
     })
     
+    // Se estava na lista de devolvidos, remove
+    await supabase.from('returned_orders').delete().eq('order_id', orderId)
+    
     if (error) throw error
     return { success: true }
   } catch (error) {

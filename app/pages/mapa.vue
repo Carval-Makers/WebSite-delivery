@@ -35,7 +35,19 @@
       class="fab-demo btn-primary"
       @click="toggleDemoPanel"
     >
-      🎮 Demonstrativo
+      🕹️ Demonstrativo
+    </button>
+
+    <!-- Fab Admin "Devolvidos" -->
+    <button 
+      v-if="userRole === 'admin'" 
+      class="fab-taxas btn-secondary"
+      style="bottom: 190px; background-color: #f59e0b;"
+      @click="toggleReturnedPanel"
+      title="Pedidos Devolvidos"
+    >
+      <span class="material-icons" style="font-size: 20px;">assignment_return</span>
+      <span v-if="returnedOrders.length > 0" class="badge-count" style="background: red; color: white; padding: 2px 6px; border-radius: 12px; font-size: 12px; position: absolute; top: -5px; right: -5px;">{{ returnedOrders.length }}</span>
     </button>
 
     <!-- Fab Admin "Taxas" -->
@@ -154,6 +166,25 @@
       </div>
     </div>
 
+    <!-- Painel de Devolvidos -->
+    <div v-if="isReturnedPanelOpen" class="panel-overlay">
+      <div class="glass-panel delivery-panel">
+        <div class="panel-header">
+          <h2>Pedidos Devolvidos</h2>
+          <button class="btn-icon" @click="toggleReturnedPanel" title="Fechar">❌</button>
+        </div>
+        <div class="motoboy-list" style="margin-top: 10px;">
+          <div v-if="returnedOrders.length === 0" class="empty-state">Nenhum pedido devolvido no momento.</div>
+          <div v-for="ro in returnedOrders" :key="ro.order_id" class="motoboy-card" style="border-left: 4px solid #f59e0b; padding: 10px; margin-bottom: 10px; background: rgba(255,255,255,0.8); border-radius: 8px;">
+            <div class="motoboy-info">
+              <span class="motoboy-name" style="font-weight: bold;">Pedido #{{ ro.order_id }}</span>
+              <span class="motoboy-status" style="color: #f59e0b; font-size: 12px;">Devolvido por: {{ ro.motoboy_name }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Modal para Salvar Zona de Taxa -->
     <div v-if="showZoneModal" class="confirm-modal-overlay" @click.self="cancelZone">
       <div class="glass-panel confirm-modal-card">
@@ -263,6 +294,22 @@
               </div>
             </div>
             <span class="platform-arrow">✔</span>
+          </button>
+          
+          <button 
+            v-if="detectedChannel === 'direct' || detectedChannel === 'all' || showOtherChannels"
+            class="platform-btn direct-btn"
+            style="background-color: #f59e0b; color: white;"
+            @click="executeReturnDelivery(pendingOrder.id)"
+          >
+            <div class="platform-btn-left">
+              <span class="platform-logo">⚠️</span>
+              <div class="platform-text">
+                <strong>Cliente Não Atendeu</strong>
+                <small>Devolver para a Loja</small>
+              </div>
+            </div>
+            <span class="platform-arrow">↩</span>
           </button>
         </div>
 
@@ -499,10 +546,60 @@ const executeConfirmDelivery = async (orderId) => {
   }
 }
 
+const executeReturnDelivery = async (orderId) => {
+  if (!confirm('Deseja realmente devolver este pedido? Você ganhará a taxa da viagem.')) return
+  try {
+    if (orderMarkers[orderId]) {
+      map.removeLayer(orderMarkers[orderId])
+      delete orderMarkers[orderId]
+    }
+    
+    // --- Lógica da Taxa (Ganha a taxa mesmo devolvendo) ---
+    const order = cwOrders.value.find(o => String(o.id) === String(orderId))
+    let fee = 0
+    if (order) {
+      const lat = order.lat || Number(order.delivery_address?.latitude)
+      const lng = order.lng || Number(order.delivery_address?.longitude)
+      if (lat && lng) {
+        for (const zone of deliveryZones.value) {
+          if (isPointInPolygon([lat, lng], zone.polygon_points)) {
+            fee = Number(zone.price)
+            break
+          }
+        }
+      }
+    }
+    updateDailyStats(fee, orderId)
+    // -----------------------
+
+    cwOrders.value = cwOrders.value.filter(o => String(o.id) !== String(orderId))
+
+    if (activeRouteDest && String(activeRouteDest.orderId) === String(orderId)) {
+      if (window.stopRoute) window.stopRoute()
+    }
+    
+    if (orderId !== 'DEMO_TUTORIAL') {
+      // Registra como devolvido no backend
+      await $fetch('/api/returned', { 
+        method: 'POST', 
+        body: { orderId, motoboyName: userName.value }
+      })
+    }
+
+    // Remove a atribuição do motoboy atual
+    await $fetch(`/api/assign/${orderId}`, { method: 'DELETE' })
+    
+    pendingOrder.value = null
+  } catch (error) {
+    console.error('Erro ao devolver entrega', error)
+  }
+}
+
 
 // --- ESTADO DO ADMIN ---
 const storeStatus = ref('Carregando Status...')
 const isPanelOpen = ref(false)
+const isReturnedPanelOpen = ref(false)
 const isDemoPanelOpen = ref(false)
 const selectedDemoMotoboy = ref('')
 const showAddForm = ref(false)
@@ -510,6 +607,7 @@ const isSaving = ref(false)
 const addError = ref('')
 const newDelivery = ref({ name: '', login: '', password: '' })
 const motoboys = ref([])
+const returnedOrders = ref([])
 const cwOrders = ref([])
 const isLoading = ref(false)
 
@@ -632,7 +730,7 @@ onMounted(async () => {
 
   // Marcador fixo da Loja usando DivIcon para não quebrar a imagem em produção
   const storeIcon = L.divIcon({
-    html: '<div style="font-size: 32px; filter: drop-shadow(0px 4px 4px rgba(0,0,0,0.4));">🏪</div>',
+    html: '<div style="font-size: 32px; filter: drop-shadow(0px 4px 4px rgba(0,0,0,0.4));">🍕</div>',
     className: 'custom-moto-icon',
     iconSize: [40, 40],
     iconAnchor: [20, 20],
@@ -691,7 +789,7 @@ onMounted(async () => {
   } else if (userRole.value === 'admin') {
     startAdminTracking()
     fetchMotoboys() // Precisamos da lista de motoboys para o select de despacho
-    
+    fetchReturnedOrders()
     // Expõe a função globalmente para ser chamada pelo HTML injetado do Leaflet
     window.assignOrder = async (orderId) => {
       const select = document.getElementById(`select-motoboy-${orderId}`)
@@ -1334,6 +1432,15 @@ const startAdminTracking = () => {
 
 
 // --- MÉTODOS DO PAINEL ADMIN ---
+const toggleReturnedPanel = () => {
+  isReturnedPanelOpen.value = !isReturnedPanelOpen.value
+  if (isReturnedPanelOpen.value) {
+    isPanelOpen.value = false
+    isDemoPanelOpen.value = false
+    fetchReturnedOrders()
+  }
+}
+
 const toggleDemoPanel = () => {
   isDemoPanelOpen.value = !isDemoPanelOpen.value
   if (isDemoPanelOpen.value) {
@@ -1496,6 +1603,16 @@ const updateAdminPins = async () => {
     })
   } catch (error) {
     console.error('Erro ao atualizar pinos', error)
+  }
+}
+
+const fetchReturnedOrders = async () => {
+  if (userRole.value !== 'admin') return
+  try {
+    const data = await $fetch('/api/returned')
+    returnedOrders.value = data || []
+  } catch (e) {
+    console.error('Erro ao buscar devolvidos', e)
   }
 }
 
