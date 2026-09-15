@@ -36,6 +36,15 @@
       🎮 Demonstrativo
     </button>
 
+    <!-- Fab Admin "Taxas" -->
+    <button 
+      v-if="userRole === 'admin'" 
+      class="fab-taxas btn-secondary"
+      @click="toggleEditZones"
+    >
+      🗺️ Taxas
+    </button>
+
     <!-- Fab Motoboy "Parar Rota" -->
     <button 
       v-if="userRole === 'delivery' && isRouting" 
@@ -140,6 +149,29 @@
           Carregando...
         </div>
 
+      </div>
+    </div>
+
+    <!-- Modal para Salvar Zona de Taxa -->
+    <div v-if="showZoneModal" class="confirm-modal-overlay" @click.self="cancelZone">
+      <div class="glass-panel confirm-modal-card">
+        <h3 style="margin-bottom: 8px;">Nova Zona de Entrega</h3>
+        <p style="font-size: 14px; color: var(--color-text-secondary); margin-bottom: 20px;">Defina o nome da região e o valor da taxa.</p>
+        
+        <div class="input-group">
+          <label>Nome da Região</label>
+          <input type="text" v-model="newZone.name" placeholder="Ex: Centro" class="app-input" style="width: 100%; margin-top: 4px;" />
+        </div>
+        
+        <div class="input-group" style="margin-top: 15px;">
+          <label>Taxa de Entrega (R$)</label>
+          <input type="number" v-model="newZone.price" placeholder="Ex: 5.00" step="0.5" class="app-input" style="width: 100%; margin-top: 4px;" />
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-top: 25px;">
+          <button class="btn-secondary" style="flex:1;" @click="cancelZone">Cancelar</button>
+          <button class="btn-primary" style="flex:1;" @click="saveZone">Salvar Zona</button>
+        </div>
       </div>
     </div>
 
@@ -264,6 +296,14 @@ let L = null
 // --- ESTADO DO MODAL DE CONFIRMAÇÃO ---
 const showConfirmModal = ref(false)
 const pendingOrder = ref(null)
+
+// --- ESTADO DAS ZONAS DE ENTREGA ---
+const showZoneModal = ref(false)
+const newZone = ref({ name: '', price: null })
+const deliveryZones = ref([])
+const isEditZonesMode = ref(false)
+let currentDrawingLayer = null
+let zonePolygons = {}
 const showOtherChannels = ref(false)
 
 const getOrderChannel = (order) => {
@@ -428,6 +468,77 @@ let demoRouteCoords = []
 let demoIndex = 0
 let demoInterval = null
 
+// --- FUNÇÕES DE ZONAS DE ENTREGA ---
+const fetchZones = async () => {
+  try {
+    const { data } = await $fetch('/api/zones')
+    deliveryZones.value = data || []
+    
+    // Limpa os antigos
+    Object.values(zonePolygons).forEach(p => map.removeLayer(p))
+    zonePolygons = {}
+
+    // Desenha as zonas
+    deliveryZones.value.forEach(zone => {
+      const poly = L.polygon(zone.polygon_points, { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.2 }).addTo(map)
+      poly.zoneId = zone.id
+      
+      const center = poly.getBounds().getCenter()
+      const priceHtml = `<div style="background: rgba(255,255,255,0.9); border: 2px solid #3b82f6; border-radius: 8px; padding: 4px 8px; font-weight: bold; color: #1d4ed8; font-size: 14px; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">R$ ${Number(zone.price).toFixed(2)}<br><span style="font-size:10px;color:#6b7280;">${zone.name}</span></div>`
+      
+      const labelIcon = L.divIcon({ html: priceHtml, className: '', iconSize: null, iconAnchor: [40, 20] })
+      const labelMarker = L.marker(center, { icon: labelIcon, interactive: false }).addTo(map)
+      
+      zonePolygons[zone.id] = L.layerGroup([poly, labelMarker]).addTo(map)
+    })
+  } catch (error) {
+    console.error('Erro ao carregar zonas:', error)
+  }
+}
+
+const toggleEditZones = () => {
+  isEditZonesMode.value = !isEditZonesMode.value
+  if (map && map.pm) {
+    map.pm.toggleControls()
+  }
+}
+
+const cancelZone = () => {
+  if (currentDrawingLayer) {
+    map.removeLayer(currentDrawingLayer)
+    currentDrawingLayer = null
+  }
+  showZoneModal.value = false
+  newZone.value = { name: '', price: null }
+}
+
+const saveZone = async () => {
+  if (!newZone.value.name || newZone.value.price === null) {
+    alert('Preencha o nome e o valor da taxa.')
+    return
+  }
+  if (!currentDrawingLayer) return
+
+  const latLngs = currentDrawingLayer.getLatLngs()[0]
+  const polygon_points = latLngs.map(ll => [ll.lat, ll.lng])
+
+  try {
+    await $fetch('/api/zones', {
+      method: 'POST',
+      body: {
+        name: newZone.value.name,
+        price: newZone.value.price,
+        polygon_points
+      }
+    })
+    cancelZone()
+    fetchZones()
+  } catch (error) {
+    alert('Erro ao salvar zona')
+    console.error(error)
+  }
+}
+
 onMounted(async () => {
   // Pega dados do usuário
   const userData = localStorage.getItem('user')
@@ -446,6 +557,8 @@ onMounted(async () => {
   // Inicializa Mapa
   L = (await import('leaflet')).default
   await import('leaflet/dist/leaflet.css')
+  await import('@geoman-io/leaflet-geoman-free')
+  await import('@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css')
 
   map = L.map('map', { zoomControl: false }).setView([-22.549, -41.975], 15)
 
@@ -468,6 +581,44 @@ onMounted(async () => {
   storeMarker.bindPopup("<b>Loja / Base</b><br>Alameda Campomar, 1435").openPopup()
 
   L.control.zoom({ position: 'bottomleft' }).addTo(map)
+
+  // Configuração Geoman (Zonas de Entrega)
+  if (userRole.value === 'admin' && map.pm) {
+    map.pm.addControls({
+      position: 'topleft',
+      drawMarker: false,
+      drawCircleMarker: false,
+      drawPolyline: false,
+      drawRectangle: false,
+      drawCircle: false,
+      drawText: false,
+      editMode: true,
+      dragMode: false,
+      cutPolygon: false,
+      removalMode: true,
+      drawPolygon: true,
+    })
+    map.pm.toggleControls() // Hide by default
+
+    map.on('pm:create', (e) => {
+      currentDrawingLayer = e.layer
+      showZoneModal.value = true
+    })
+
+    map.on('pm:remove', async (e) => {
+      if (e.layer.zoneId) {
+        if(confirm('Remover esta zona de entrega?')) {
+          await $fetch(`/api/zones/${e.layer.zoneId}`, { method: 'DELETE' })
+          fetchZones()
+        } else {
+          fetchZones()
+        }
+      }
+    })
+  }
+  
+  // Carrega as zonas
+  setTimeout(() => fetchZones(), 500)
 
   // Inicia Lógica de Rastreamento dependendo da Role
   if (userRole.value === 'delivery') {
@@ -1418,13 +1569,29 @@ const triggerStopRoute = () => {
 .fab-demo {
   position: absolute;
   bottom: 90px; /* Above motoboy button */
-  right: 30px;
+  left: 20px;
   z-index: 1000;
-  border-radius: 30px;
-  padding: 12px 24px;
+  border-radius: 20px;
+  padding: 10px 20px;
   background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
   color: white; border: none; font-weight: 600; cursor: pointer;
   box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);
+}
+
+.fab-taxas {
+  position: absolute;
+  bottom: 140px; /* Above demo button */
+  left: 20px;
+  z-index: 1000;
+  border-radius: 20px;
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white; border: none; font-weight: 600; cursor: pointer;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+.fab-taxas:hover {
+  transform: translateY(-2px);
 }
 .fab-demo:hover {
   transform: translateY(-2px);
