@@ -45,6 +45,19 @@
       🛑 Parar Rota
     </button>
 
+    <!-- Indicador de Tela Sempre Ativa para o Motoboy -->
+    <button 
+      v-if="userRole === 'delivery' && isRouting" 
+      class="badge-wakelock"
+      :class="{ 'badge-wakelock-active': isWakeLockActive, 'badge-wakelock-inactive': !isWakeLockActive }"
+      @click="ensureWakeLock"
+      title="Status da tela: clique para garantir que a tela fique ligada"
+    >
+      <span class="wakelock-dot"></span>
+      <span v-if="isWakeLockActive">💡 Tela Sempre Ativa</span>
+      <span v-else>⚠️ Toque p/ Manter Ligada</span>
+    </button>
+
     <!-- Fab Motoboy "Melhor Rota" -->
     <button 
       v-if="userRole === 'delivery' && !isRouting && cwOrders.length > 0" 
@@ -520,47 +533,132 @@ onMounted(async () => {
     }
   }
 
-  // Monitora retorno para o navegador para manter a tela ligada se a rota estiver em andamento
+  // Monitora retorno para o navegador e toques do motoboy para manter a tela ligada
   if (import.meta.client) {
     document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('pointerdown', onGlobalUserInteraction, { passive: true })
+    window.addEventListener('touchstart', onGlobalUserInteraction, { passive: true })
   }
 })
 
 onUnmounted(() => {
   if (import.meta.client) {
     document.removeEventListener('visibilitychange', handleVisibilityChange)
+    window.removeEventListener('pointerdown', onGlobalUserInteraction)
+    window.removeEventListener('touchstart', onGlobalUserInteraction)
   }
   releaseWakeLock()
   if (trackingInterval) clearInterval(trackingInterval)
   if (map) map.remove()
 })
 
-// --- SCREEN WAKE LOCK (Mantém a tela do celular ligada durante o percurso) ---
+// --- SCREEN WAKE LOCK & FALLBACK (Mantém a tela do celular sempre ligada durante o percurso) ---
 let wakeLock = null
+let fallbackVideo = null
+const isWakeLockActive = ref(false)
 
-const requestWakeLock = async () => {
+const startVideoFallback = () => {
   try {
-    if (import.meta.client && 'wakeLock' in navigator && !wakeLock) {
-      wakeLock = await navigator.wakeLock.request('screen')
-      wakeLock.addEventListener('release', () => {
-        wakeLock = null
+    if (!import.meta.client || fallbackVideo) return
+    
+    fallbackVideo = document.createElement('video')
+    fallbackVideo.setAttribute('playsinline', '')
+    fallbackVideo.setAttribute('webkit-playsinline', '')
+    fallbackVideo.muted = true
+    fallbackVideo.loop = true
+    fallbackVideo.style.position = 'fixed'
+    fallbackVideo.style.bottom = '0'
+    fallbackVideo.style.right = '0'
+    fallbackVideo.style.width = '1px'
+    fallbackVideo.style.height = '1px'
+    fallbackVideo.style.opacity = '0.01'
+    fallbackVideo.style.pointerEvents = 'none'
+    fallbackVideo.style.zIndex = '-1'
+
+    // Micro vídeo MP4 mudo em loop para impedir que o celular apague a tela mesmo em Modo de Economia
+    fallbackVideo.src = 'data:video/mp4;base64,AAAAHGZ0eXBtcDQyAAAAAW1wNDJpc29tYXZjMQAAABBmcmVlAAACw21kYXQAAAK0AAACvW1vb3YAAABsbXZoZAAAAAB32Pzvd9j87wAABdQAAAN+AAEAAAEAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA0AdHJhazAAAAEcdGtkaAAAAAHfd9j8d9j8AAAAAAN+AAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAICbWRpYQAAACBtZGhkAAAAAHfY/O932PzvAABV0AABGAAAAAAAAAAMaGRscgAAAAAAAAAAdmlkZQAAAAAAAAAAAAAAAFZpZGVvSGFuZGxlcgAAAADGbWluZgAAABR2bWhkAAAAAQAAAAAAAAAAAAAAJGRpbmYAAAAcZHJlZgAAAAAAAAABAAAADGR1cmwAAAABAAAAv3N0YmwAAABTc3RzZAAAAAAAAAABAAAATmF2YzEAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAQAQABgAAABIAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEB//AAAAGmF2Y0MBAMAP/wAZAQD/AAAAMmF1dGgAAAAAAAAAAQAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACXN0dHMAAAAAAAAAAQAAAAEAAFXQAAAAHHN0c2MAAAAAAAAAAQAAAAEAAAABAAAAAQAAABRzdHN6AAAAAAAAAAAAAAABAAAAFnN0Y28AAAAAAAAAAQAAADAA'
+    
+    document.body.appendChild(fallbackVideo)
+    const playPromise = fallbackVideo.play()
+    if (playPromise !== undefined) {
+      playPromise.then(() => {
+        isWakeLockActive.value = true
+        console.log('✅ Fallback de mídia ativo: tela permanecerá ligada.')
+      }).catch((e) => {
+        console.warn('Fallback de mídia aguarda toque do usuário:', e)
       })
-      console.log('Wake Lock ativado: tela permanecerá ativa durante a rota.')
     }
-  } catch (err) {
-    console.warn('Wake Lock não suportado ou não autorizado pelo aparelho:', err)
+  } catch (e) {
+    console.warn('Erro no fallback de vídeo:', e)
   }
 }
 
-const releaseWakeLock = async () => {
-  try {
-    if (wakeLock) {
-      await wakeLock.release()
-      wakeLock = null
-      console.log('Wake Lock liberado: tela volta ao repouso normal.')
+const stopVideoFallback = () => {
+  if (fallbackVideo) {
+    try {
+      fallbackVideo.pause()
+      fallbackVideo.remove()
+    } catch(e) {}
+    fallbackVideo = null
+  }
+}
+
+const requestWakeLock = async () => {
+  if (!import.meta.client) return
+
+  // 1. Tenta API Nativa do Navegador (Prioritária)
+  if ('wakeLock' in navigator) {
+    try {
+      if (!wakeLock) {
+        wakeLock = await navigator.wakeLock.request('screen')
+        isWakeLockActive.value = true
+        console.log('✅ Wake Lock Nativo Ativado: Tela permanecerá 100% ativa.')
+
+        wakeLock.addEventListener('release', () => {
+          wakeLock = null
+          isWakeLockActive.value = false
+          console.log('⚠️ Wake Lock Nativo liberado pelo sistema operacional.')
+          // Se ainda estiver em rota, tenta reativar imediatamente via fallback
+          if (isRouting.value) {
+            startVideoFallback()
+          }
+        })
+        return
+      } else {
+        isWakeLockActive.value = true
+        return
+      }
+    } catch (err) {
+      console.warn('Wake Lock nativo bloqueado ou sem gesto recente, ativando fallback:', err)
     }
-  } catch (err) {
-    console.warn('Erro ao liberar Wake Lock:', err)
+  }
+
+  // 2. Fallback de Mídia em segundo plano caso a API nativa falhe (ex: Modo Economia de Bateria ou iOS)
+  startVideoFallback()
+}
+
+const releaseWakeLock = async () => {
+  stopVideoFallback()
+  if (wakeLock) {
+    try {
+      await wakeLock.release()
+    } catch (err) {
+      console.warn('Erro ao liberar Wake Lock:', err)
+    }
+    wakeLock = null
+  }
+  isWakeLockActive.value = false
+  console.log('Wake Lock liberado: tela volta ao repouso normal.')
+}
+
+const ensureWakeLock = () => {
+  requestWakeLock()
+}
+
+const onGlobalUserInteraction = () => {
+  // Se a rota estiver em andamento e por algum motivo a tela tiver sido liberada, renova no toque do motoboy!
+  if (isRouting.value && !isWakeLockActive.value) {
+    requestWakeLock()
   }
 }
 
@@ -570,7 +668,7 @@ const handleVisibilityChange = () => {
   }
 }
 
-// Ativa a tela ligada automaticamente ao traçar rota e desativa ao parar a rota
+// Monitora rota para solicitar ou liberar
 watch(isRouting, (newVal) => {
   if (newVal) {
     requestWakeLock()
@@ -607,6 +705,10 @@ const getDistance = (lat1, lon1, lat2, lon2) => {
 }
 
 const calculateBestRoute = () => {
+  // Ativa a proteção de tela ligada imediatamente no gesto do usuário
+  requestWakeLock()
+  isRouting.value = true
+
   if (!navigator.geolocation) return alert('GPS indisponível')
   
   navigator.geolocation.getCurrentPosition((position) => {
@@ -759,6 +861,10 @@ const drawRoute = async (coordsStr, finalNode, isDemo = false) => {
 
 if (import.meta.client) {
   window.startRoute = (lat, lng, orderId) => {
+    // Ativa a proteção de tela ligada imediatamente no gesto do usuário
+    requestWakeLock()
+    isRouting.value = true
+
     if (orderId === 'DEMO_TUTORIAL') {
       isDemoMode = true
       // Começa da loja
@@ -1728,5 +1834,69 @@ const triggerStopRoute = () => {
 .btn-toggle-channel:hover {
   opacity: 1;
   color: var(--color-primary);
+}
+
+/* Indicador de Tela Sempre Ativa */
+.badge-wakelock {
+  position: absolute;
+  top: 75px;
+  left: 20px;
+  z-index: 1000;
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  cursor: pointer;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+  transition: var(--transition);
+  animation: slideDownFade 0.3s ease-out;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.badge-wakelock-active {
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+.badge-wakelock-active .wakelock-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 10px #10b981;
+  animation: pulseDot 2s infinite;
+}
+
+@keyframes pulseDot {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.25); opacity: 1; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.badge-wakelock-inactive {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.5);
+  animation: pulseAlert 1.5s infinite;
+}
+
+@keyframes pulseAlert {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
+}
+
+@media (max-width: 600px) {
+  .badge-wakelock {
+    top: 65px;
+    left: 16px;
+    padding: 5px 12px;
+    font-size: 12px;
+  }
 }
 </style>
