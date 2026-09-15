@@ -611,7 +611,7 @@ onMounted(async () => {
   })
   
   const storeMarker = L.marker([-22.549, -41.975], { icon: storeIcon }).addTo(map)
-  storeMarker.bindPopup("<b>Loja / Base</b><br>Alameda Campomar, 1435").openPopup()
+  storeMarker.bindPopup("<b>Loja / Base</b><br>Alameda Campomar, 1435")
 
   L.control.zoom({ position: 'bottomleft' }).addTo(map)
 
