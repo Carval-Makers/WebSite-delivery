@@ -112,21 +112,6 @@
       <div class="glass-panel delivery-panel">
         <div class="panel-header">
           <h2>Motoboys</h2>
-          <button class="btn-icon" @click="toggleAddForm" title="Registrar novo motoboy">
-            <span v-if="!showAddForm">➕</span>
-            <span v-else>❌</span>
-          </button>
-        </div>
-
-        <!-- Formulário de Adição -->
-        <div v-if="showAddForm" class="add-form">
-          <input type="text" v-model="newDelivery.name" placeholder="Nome" class="form-input" />
-          <input type="text" v-model="newDelivery.login" placeholder="Login" class="form-input" />
-          <input type="password" v-model="newDelivery.password" placeholder="Senha" class="form-input" />
-          <button class="btn-primary btn-small" @click="addDelivery" :disabled="isSaving">
-            {{ isSaving ? 'Salvando...' : 'Salvar' }}
-          </button>
-          <p v-if="addError" class="error-text">{{ addError }}</p>
         </div>
 
         <!-- Lista -->
@@ -466,7 +451,7 @@ const executeConfirmDelivery = async (orderId) => {
     }
   } catch (error) {
     console.error('Erro ao confirmar entrega', error)
-    alert('Aviso: O pedido sumiu da sua tela, mas pode haver lentidão na sincronização com a loja.')
+    
   }
 }
 
@@ -475,19 +460,14 @@ const executeConfirmDelivery = async (orderId) => {
 const isPanelOpen = ref(false)
 const isDemoPanelOpen = ref(false)
 const selectedDemoMotoboy = ref('')
-const showAddForm = ref(false)
 const motoboys = ref([])
 const cwOrders = ref([])
 const isLoading = ref(false)
-const isSaving = ref(false)
-const addError = ref('')
-const newDelivery = ref({ name: '', login: '', password: '' })
 
 // Rastreamento (Polling)
 let trackingInterval = null
 const deliveryMarkers = {} // Guarda os pinos dos motoboys (admin)
 const orderMarkers = {} // Guarda pinos de pedidos
-const assignments = ref([]) // Lista de atribuições
 
 // Estados da Rota (GPS do Motoboy)
 let routePolyline = null
@@ -553,7 +533,7 @@ const cancelZone = () => {
 
 const saveZone = async () => {
   if (!newZone.value.name || newZone.value.price === null) {
-    alert('Preencha o nome e o valor da taxa.')
+    
     return
   }
   if (!currentDrawingLayer) return
@@ -573,7 +553,7 @@ const saveZone = async () => {
     cancelZone()
     fetchZones()
   } catch (error) {
-    alert('Erro ao salvar zona')
+    
     console.error(error)
   }
 }
@@ -672,7 +652,7 @@ onMounted(async () => {
     window.assignOrder = async (orderId) => {
       const select = document.getElementById(`select-motoboy-${orderId}`)
       if (!select || !select.value) {
-        alert('Selecione um motoboy primeiro!')
+        
         return
       }
       
@@ -707,7 +687,7 @@ onMounted(async () => {
         updateAdminPins()
       } catch (error) {
         console.error('Erro ao atribuir pedido.', error)
-        alert('Erro ao atribuir pedido.')
+        
       }
     }
 
@@ -718,7 +698,7 @@ onMounted(async () => {
         updateAdminPins()
       } catch (error) {
         console.error('Erro ao remover atribuição.', error)
-        alert('Erro ao remover atribuição.')
+        
       }
     }
   }
@@ -773,7 +753,7 @@ const startVideoFallback = () => {
     if (playPromise !== undefined) {
       playPromise.then(() => {
         isWakeLockActive.value = true
-        console.log('✅ Fallback de mídia ativo: tela permanecerá ligada.')
+        
       }).catch((e) => {
         console.warn('Fallback de mídia aguarda toque do usuário:', e)
       })
@@ -802,12 +782,12 @@ const requestWakeLock = async () => {
       if (!wakeLock) {
         wakeLock = await navigator.wakeLock.request('screen')
         isWakeLockActive.value = true
-        console.log('✅ Wake Lock Nativo Ativado: Tela permanecerá 100% ativa.')
+        
 
         wakeLock.addEventListener('release', () => {
           wakeLock = null
           isWakeLockActive.value = false
-          console.log('⚠️ Wake Lock Nativo liberado pelo sistema operacional.')
+          
           // Se ainda estiver em rota, tenta reativar imediatamente via fallback
           if (isRouting.value) {
             startVideoFallback()
@@ -838,7 +818,7 @@ const releaseWakeLock = async () => {
     wakeLock = null
   }
   isWakeLockActive.value = false
-  console.log('Wake Lock liberado: tela volta ao repouso normal.')
+  
 }
 
 const ensureWakeLock = () => {
@@ -899,7 +879,7 @@ const calculateBestRoute = () => {
   requestWakeLock()
   isRouting.value = true
 
-  if (!navigator.geolocation) return alert('GPS indisponível')
+  if (!navigator.geolocation) return 
   
   navigator.geolocation.getCurrentPosition((position) => {
     let currLat = position.coords.latitude
@@ -918,7 +898,7 @@ const calculateBestRoute = () => {
        })
     })
 
-    if (unvisited.length === 0) return alert('Nenhum pedido alocado!')
+    if (unvisited.length === 0) return 
 
     const ordered = []
     let currentPos = { lat: currLat, lng: currLng }
@@ -1066,7 +1046,7 @@ if (import.meta.client) {
 
     isDemoMode = false
     if (!navigator.geolocation) {
-      alert('Geolocalização não suportada.')
+      
       return
     }
     navigator.geolocation.getCurrentPosition((position) => {
@@ -1328,7 +1308,7 @@ const togglePanel = () => {
 
 const assignDemo = async () => {
   if (!selectedDemoMotoboy.value) {
-    alert('Selecione um motoboy primeiro!')
+    
     return
   }
   const boyId = Number(selectedDemoMotoboy.value)
@@ -1340,20 +1320,20 @@ const assignDemo = async () => {
       method: 'POST',
       body: { orderId: 'DEMO_TUTORIAL', motoboyId: boy.id, motoboyName: boy.name }
     })
-    alert(`Modo Tutorial ativado para o motoboy ${boy.name}!`)
+    
     toggleDemoPanel()
   } catch(e) {
-    alert('Erro ao iniciar simulação.')
+    
   }
 }
 
 const unassignDemo = async () => {
   try {
     await $fetch(`/api/assign/DEMO_TUTORIAL`, { method: 'DELETE' })
-    alert('Modo Tutorial encerrado!')
+    
     toggleDemoPanel()
   } catch(e) {
-    alert('Erro ao encerrar simulação.')
+    
   }
 }
 
@@ -1522,12 +1502,6 @@ const fetchCwOrders = async () => {
   }
 }
 
-const toggleAddForm = () => {
-  showAddForm.value = !showAddForm.value
-  addError.value = ''
-  newDelivery.value = { name: '', login: '', password: '' }
-}
-
 const fetchMotoboys = async () => {
   isLoading.value = true
   try {
@@ -1540,28 +1514,6 @@ const fetchMotoboys = async () => {
   }
 }
 
-const addDelivery = async () => {
-  if (!newDelivery.value.name || !newDelivery.value.login || !newDelivery.value.password) {
-    addError.value = 'Preencha todos os campos.'
-    return
-  }
-  
-  isSaving.value = true
-  addError.value = ''
-  try {
-    await $fetch('/api/delivery', {
-      method: 'POST',
-      body: newDelivery.value
-    })
-    toggleAddForm()
-    await fetchMotoboys() // Recarrega a lista
-  } catch (error) {
-    addError.value = error.data?.statusMessage || 'Erro ao cadastrar.'
-  } finally {
-    isSaving.value = false
-  }
-}
-
 const deleteDelivery = async (id) => {
   if (!confirm('Tem certeza que deseja remover este motoboy?')) return
   
@@ -1569,7 +1521,7 @@ const deleteDelivery = async (id) => {
     await $fetch(`/api/delivery/${id}`, { method: 'DELETE' })
     await fetchMotoboys() // Recarrega a lista
   } catch (error) {
-    alert('Erro ao remover motoboy.')
+    
   }
 }
 
