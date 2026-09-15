@@ -517,7 +517,13 @@ const fetchZones = async () => {
       poly.zoneId = zone.id
       
       const center = poly.getBounds().getCenter()
-      const priceHtml = `<div style="background: rgba(255,255,255,0.9); border: 2px solid #3b82f6; border-radius: 8px; padding: 4px 8px; font-weight: bold; color: #1d4ed8; font-size: 14px; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">R$ ${Number(zone.price).toFixed(2)}<br><span style="font-size:10px;color:#6b7280;">${zone.name}</span></div>`
+      let priceHtml = ''
+      
+      if (userRole.value === 'admin') {
+        priceHtml = `<div style="background: rgba(255,255,255,0.9); border: 2px solid #3b82f6; border-radius: 8px; padding: 4px 8px; font-weight: bold; color: #1d4ed8; font-size: 14px; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">R$ ${Number(zone.price).toFixed(2)}<br><span style="font-size:10px;color:#6b7280;">${zone.name}</span></div>`
+      } else {
+        priceHtml = `<div style="font-weight: 900; color: #1d4ed8; font-size: 18px; white-space: nowrap; text-shadow: 2px 2px 0 #fff, -2px -2px 0 #fff, 2px -2px 0 #fff, -2px 2px 0 #fff, 0 2px 0 #fff, 0 -2px 0 #fff, 2px 0 0 #fff, -2px 0 0 #fff;">R$ ${Number(zone.price).toFixed(2)}</div>`
+      }
       
       const labelIcon = L.divIcon({ html: priceHtml, className: '', iconSize: null, iconAnchor: [40, 20] })
       const labelMarker = L.marker(center, { icon: labelIcon, interactive: false }).addTo(map)
