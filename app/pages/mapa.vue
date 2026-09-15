@@ -41,8 +41,8 @@
     <!-- Fab Admin "Devolvidos" -->
     <button 
       v-if="userRole === 'admin'" 
-      class="fab-taxas btn-secondary"
-      style="bottom: 210px; background-color: #f59e0b; border-color: #f59e0b; color: white;"
+      class="fab-devolvidos btn-secondary"
+      style="background-color: #f59e0b; border-color: #f59e0b; color: white;"
       @click="toggleReturnedPanel"
       title="Pedidos Devolvidos"
     >
@@ -1772,7 +1772,7 @@ const triggerStopRoute = () => {
 .profile-badge { padding: 10px 20px; border-radius: 20px; font-weight: 600; color: #10b981; pointer-events: auto; }
 
 /* Fab Botoes Premium */
-.fab-motoboy, .fab-demo, .fab-taxas {
+.fab-motoboy, .fab-demo, .fab-taxas, .fab-devolvidos {
   position: absolute;
   border-radius: 50%;
   width: 56px;
@@ -1786,10 +1786,11 @@ const triggerStopRoute = () => {
   transition: var(--transition);
 }
 .fab-motoboy { bottom: 30px; right: 30px; width: auto; padding: 0 24px; border-radius: 28px; }
-.fab-demo { bottom: 90px; left: 20px; border-radius: 16px; width: auto; padding: 0 20px; font-weight: 600; height: 48px; }
-.fab-taxas { bottom: 150px; left: 20px; border-radius: 16px; width: auto; padding: 0 20px; font-weight: 600; height: 48px; }
+.fab-demo { bottom: 90px; right: 30px; border-radius: 16px; width: auto; padding: 0 20px; font-weight: 600; height: 48px; }
+.fab-taxas { bottom: 150px; right: 30px; border-radius: 16px; width: auto; padding: 0 20px; font-weight: 600; height: 48px; }
+.fab-devolvidos { bottom: 210px; right: 30px; border-radius: 16px; width: auto; padding: 0 20px; font-weight: 600; height: 48px; }
 
-.fab-motoboy:hover, .fab-demo:hover, .fab-taxas:hover {
+.fab-motoboy:hover, .fab-demo:hover, .fab-taxas:hover, .fab-devolvidos:hover {
   transform: translateY(-3px);
   box-shadow: 0 15px 30px -5px rgba(0,0,0,0.4);
 }
