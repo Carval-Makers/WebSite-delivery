@@ -673,15 +673,52 @@ const fetchZones = async () => {
 
     // Desenha as zonas
     deliveryZones.value.forEach(zone => {
-      const poly = L.polygon(zone.polygon_points, { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.2 }).addTo(map)
+      const poly = L.polygon(zone.polygon_points, { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.2 })
       poly.zoneId = zone.id
       
       const center = poly.getBounds().getCenter()
       let priceHtml = `<div style="font-weight: 900; color: #1d4ed8; font-size: 18px; white-space: nowrap; text-shadow: 2px 2px 0 #fff, -2px -2px 0 #fff, 2px -2px 0 #fff, -2px 2px 0 #fff, 0 2px 0 #fff, 0 -2px 0 #fff, 2px 0 0 #fff, -2px 0 0 #fff;">R$ ${Number(zone.price).toFixed(2)}</div>`
       
       const labelIcon = L.divIcon({ html: priceHtml, className: '', iconSize: null, iconAnchor: [40, 20] })
-      const labelMarker = L.marker(center, { icon: labelIcon, interactive: false }).addTo(map)
+      const labelMarker = L.marker(center, { icon: labelIcon, interactive: false, pmIgnore: true })
       
+      // Salva edições no polígono (arrasto de vértices)
+      let editTimeout = null
+      const saveZoneCoordinates = async () => {
+        try {
+          let rawLatLngs = poly.getLatLngs()
+          if (Array.isArray(rawLatLngs[0])) {
+            rawLatLngs = rawLatLngs[0]
+          }
+          if (!rawLatLngs || rawLatLngs.length < 3) return
+          const polygon_points = rawLatLngs.map(ll => [ll.lat, ll.lng])
+
+          // Reposiciona o marcador de preço para o novo centro
+          labelMarker.setLatLng(poly.getBounds().getCenter())
+
+          // Atualiza dados na memória para cálculos de taxa imediatos
+          const targetZone = deliveryZones.value.find(z => z.id === zone.id)
+          if (targetZone) targetZone.polygon_points = polygon_points
+
+          await $fetch(`/api/zones/${zone.id}`, {
+            method: 'PUT',
+            body: { polygon_points }
+          })
+        } catch (error) {
+          console.error('Erro ao salvar atualização da zona:', error)
+        }
+      }
+
+      poly.on('pm:edit', () => {
+        clearTimeout(editTimeout)
+        editTimeout = setTimeout(saveZoneCoordinates, 300)
+      })
+
+      poly.on('pm:update', () => {
+        clearTimeout(editTimeout)
+        saveZoneCoordinates()
+      })
+
       zonePolygons[zone.id] = L.layerGroup([poly, labelMarker]).addTo(map)
     })
   } catch (error) {
@@ -707,13 +744,15 @@ const cancelZone = () => {
 
 const saveZone = async () => {
   if (!newZone.value.name || newZone.value.price === null) {
-    
     return
   }
   if (!currentDrawingLayer) return
 
-  const latLngs = currentDrawingLayer.getLatLngs()[0]
-  const polygon_points = latLngs.map(ll => [ll.lat, ll.lng])
+  let rawLatLngs = currentDrawingLayer.getLatLngs()
+  if (Array.isArray(rawLatLngs[0])) {
+    rawLatLngs = rawLatLngs[0]
+  }
+  const polygon_points = rawLatLngs.map(ll => [ll.lat, ll.lng])
 
   try {
     await $fetch('/api/zones', {
@@ -727,7 +766,6 @@ const saveZone = async () => {
     cancelZone()
     fetchZones()
   } catch (error) {
-    
     console.error(error)
   }
 }
