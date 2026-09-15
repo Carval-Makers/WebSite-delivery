@@ -42,7 +42,7 @@
     <button 
       v-if="userRole === 'admin'" 
       class="fab-taxas btn-secondary"
-      style="bottom: 190px; background-color: #f59e0b;"
+      style="bottom: 210px; background-color: #f59e0b; border-color: #f59e0b; color: white;"
       @click="toggleReturnedPanel"
       title="Pedidos Devolvidos"
     >
