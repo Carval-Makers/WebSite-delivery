@@ -112,6 +112,21 @@
       <div class="glass-panel delivery-panel">
         <div class="panel-header">
           <h2>Motoboys</h2>
+          <button class="btn-icon" @click="toggleAddForm" title="Registrar novo motoboy">
+            <span v-if="!showAddForm">➕</span>
+            <span v-else>❌</span>
+          </button>
+        </div>
+
+        <!-- Formulário de Adição -->
+        <div v-if="showAddForm" class="add-form">
+          <input type="text" v-model="newDelivery.name" placeholder="Nome" class="form-input" />
+          <input type="text" v-model="newDelivery.login" placeholder="Login" class="form-input" />
+          <input type="password" v-model="newDelivery.password" placeholder="Senha" class="form-input" />
+          <button class="btn-primary btn-small" @click="addDelivery" :disabled="isSaving">
+            {{ isSaving ? 'Salvando...' : 'Salvar' }}
+          </button>
+          <p v-if="addError" class="error-text">{{ addError }}</p>
         </div>
 
         <!-- Lista -->
@@ -308,29 +323,28 @@ const isPointInPolygon = (point, vs) => {
 const dailyTaxas = ref(0)
 const dailyDeliveries = ref(0)
 
-const loadDailyStats = () => {
+const loadDailyStats = async () => {
   if (userRole.value !== 'delivery') return
-  const today = new Date().toISOString().split('T')[0]
-  const key = `motoboy_stats_${userId.value}_${today}`
-  const saved = localStorage.getItem(key)
-  if (saved) {
-    try {
-      const data = JSON.parse(saved)
-      dailyTaxas.value = data.taxas || 0
-      dailyDeliveries.value = data.deliveries || 0
-    } catch(e) {}
-  }
+  try {
+    const data = await $fetch(`/api/earnings?motoboyId=${userId.value}`)
+    dailyTaxas.value = data.taxas || 0
+    dailyDeliveries.value = data.deliveries || 0
+  } catch (e) {}
 }
 
-const updateDailyStats = (fee) => {
-  dailyTaxas.value += fee
-  dailyDeliveries.value += 1
-  const today = new Date().toISOString().split('T')[0]
-  const key = `motoboy_stats_${userId.value}_${today}`
-  localStorage.setItem(key, JSON.stringify({
-    taxas: dailyTaxas.value,
-    deliveries: dailyDeliveries.value
-  }))
+const updateDailyStats = async (fee, orderId) => {
+  if (userRole.value !== 'delivery') return
+  try {
+    // Atualiza otimista na tela
+    dailyTaxas.value += fee
+    dailyDeliveries.value += 1
+    
+    // Salva no banco de dados
+    await $fetch('/api/earnings', {
+      method: 'POST',
+      body: { motoboyId: userId.value, orderId, fee }
+    })
+  } catch (e) {}
 }
 
 const getOrderChannel = (order) => {
@@ -452,7 +466,7 @@ const executeConfirmDelivery = async (orderId) => {
         }
       }
     }
-    updateDailyStats(fee)
+    updateDailyStats(fee, orderId)
     // -----------------------
 
     cwOrders.value = cwOrders.value.filter(o => String(o.id) !== String(orderId))
@@ -488,6 +502,10 @@ const executeConfirmDelivery = async (orderId) => {
 const isPanelOpen = ref(false)
 const isDemoPanelOpen = ref(false)
 const selectedDemoMotoboy = ref('')
+const showAddForm = ref(false)
+const isSaving = ref(false)
+const addError = ref('')
+const newDelivery = ref({ name: '', login: '', password: '' })
 const motoboys = ref([])
 const cwOrders = ref([])
 const isLoading = ref(false)
@@ -1534,6 +1552,34 @@ const fetchMotoboys = async () => {
     console.error('Erro ao buscar motoboys', error)
   } finally {
     isLoading.value = false
+  }
+}
+
+const toggleAddForm = () => {
+  showAddForm.value = !showAddForm.value
+  addError.value = ''
+  newDelivery.value = { name: '', login: '', password: '' }
+}
+
+const addDelivery = async () => {
+  if (!newDelivery.value.name || !newDelivery.value.login || !newDelivery.value.password) {
+    addError.value = 'Preencha todos os campos.'
+    return
+  }
+  
+  isSaving.value = true
+  addError.value = ''
+  try {
+    await $fetch('/api/delivery', {
+      method: 'POST',
+      body: newDelivery.value
+    })
+    toggleAddForm()
+    await fetchMotoboys() // Recarrega a lista
+  } catch (error) {
+    addError.value = error.data?.statusMessage || 'Erro ao cadastrar.'
+  } finally {
+    isSaving.value = false
   }
 }
 
