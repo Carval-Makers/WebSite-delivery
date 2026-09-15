@@ -122,14 +122,22 @@
     </div>
 
     <!-- Painel Lateral / Modal Glassmorphism -->
-    <div v-if="isPanelOpen" class="panel-overlay">
-      <div class="glass-panel delivery-panel">
+    <div v-if="isPanelOpen" class="panel-overlay" @click.self="togglePanel">
+      <div class="glass-panel delivery-panel" style="width: 360px; max-height: 560px;">
         <div class="panel-header">
-          <h2>Motoboys</h2>
-          <button class="btn-icon" @click="toggleAddForm" :title="showAddForm ? 'Fechar formulário' : 'Registrar novo motoboy'">
-            <span v-if="!showAddForm"><i class="ph ph-plus" style="font-size: 1.2em;"></i></span>
-            <span v-else><i class="ph ph-x" style="font-size: 1.2em;"></i></span>
-          </button>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <i class="ph ph-motorcycle" style="font-size: 1.3em; color: var(--color-primary);"></i>
+            <h2>Motoboys & Taxas</h2>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-icon" @click="toggleAddForm" :title="showAddForm ? 'Fechar formulário' : 'Registrar novo motoboy'">
+              <span v-if="!showAddForm"><i class="ph ph-plus" style="font-size: 1.2em;"></i></span>
+              <span v-else><i class="ph ph-x" style="font-size: 1.2em;"></i></span>
+            </button>
+            <button class="btn-icon" @click="togglePanel" title="Fechar">
+              <i class="ph ph-x" style="font-size: 1.2em;"></i>
+            </button>
+          </div>
         </div>
 
         <!-- Formulário de Adição / Edição -->
@@ -152,13 +160,59 @@
 
         <!-- Lista -->
         <div class="delivery-list" v-if="!isLoading">
-          <div v-for="boy in motoboys" :key="boy.id" class="delivery-item">
-            <div class="delivery-info">
-              <span class="delivery-name">{{ boy.login || boy.name }}</span>
+          <!-- Totalizador do Turno -->
+          <div v-if="motoboys.length > 0" class="delivery-summary-card">
+            <div class="summary-item">
+              <span class="summary-label">Total em Taxas</span>
+              <span class="summary-value highlight">R$ {{ totalEarningsTaxas.toFixed(2) }}</span>
             </div>
-            <div class="delivery-actions">
-              <button class="btn-icon btn-edit" @click="startEdit(boy)" title="Editar"><i class="ph ph-pencil-simple" style="font-size: 1.1em; color: #38bdf8;"></i></button>
-              <button class="btn-icon btn-delete" @click="deleteDelivery(boy.id)" title="Deletar"><i class="ph ph-trash" style="font-size: 1.1em; color: #ef4444;"></i></button>
+            <div class="summary-divider"></div>
+            <div class="summary-item">
+              <span class="summary-label">Total Entregas</span>
+              <span class="summary-value">{{ totalEarningsDeliveries }}</span>
+            </div>
+          </div>
+
+          <div v-for="boy in motoboys" :key="boy.id" class="delivery-card">
+            <div class="delivery-item">
+              <div class="delivery-info" @click="toggleBoyOrders(boy.id)" style="cursor: pointer; flex: 1;">
+                <div class="delivery-title-row">
+                  <span class="delivery-name">{{ boy.login || boy.name }}</span>
+                  <span class="delivery-fee-badge" :class="{ 'has-fee': getBoyStats(boy.id).taxas > 0 }">
+                    R$ {{ getBoyStats(boy.id).taxas.toFixed(2) }}
+                  </span>
+                </div>
+                <div class="delivery-sub-row">
+                  <span class="delivery-count">
+                    <i class="ph ph-moped" style="font-size: 1.1em; vertical-align: middle;"></i>
+                    {{ getBoyStats(boy.id).deliveries }} {{ getBoyStats(boy.id).deliveries === 1 ? 'entrega' : 'entregas' }}
+                  </span>
+                  <span v-if="getBoyStats(boy.id).deliveries > 0" class="delivery-expand-hint">
+                    <i :class="expandedBoyId === boy.id ? 'ph ph-caret-up' : 'ph ph-caret-down'"></i>
+                    {{ expandedBoyId === boy.id ? 'Ocultar' : 'Ver entregas' }}
+                  </span>
+                </div>
+              </div>
+              <div class="delivery-actions">
+                <button class="btn-icon btn-edit" @click.stop="startEdit(boy)" title="Editar"><i class="ph ph-pencil-simple" style="font-size: 1.1em; color: #38bdf8;"></i></button>
+                <button class="btn-icon btn-delete" @click.stop="deleteDelivery(boy.id)" title="Deletar"><i class="ph ph-trash" style="font-size: 1.1em; color: #ef4444;"></i></button>
+              </div>
+            </div>
+
+            <!-- Detalhes expandidos das entregas deste motoboy -->
+            <div v-if="expandedBoyId === boy.id" class="delivery-orders-dropdown">
+              <div v-if="(getBoyStats(boy.id).orders || []).length === 0" class="empty-orders-text">
+                Nenhuma entrega registrada neste turno.
+              </div>
+              <div v-else class="orders-mini-list">
+                <div v-for="ord in getBoyStats(boy.id).orders" :key="ord.id" class="order-mini-item">
+                  <div class="order-mini-left">
+                    <span class="order-mini-id">Pedido #{{ ord.order_id }}</span>
+                    <span class="order-mini-time">{{ formatOrderTime(ord.created_at) }}</span>
+                  </div>
+                  <span class="order-mini-fee">+ R$ {{ Number(ord.fee).toFixed(2) }}</span>
+                </div>
+              </div>
             </div>
           </div>
           
@@ -667,6 +721,10 @@ const isSaving = ref(false)
 const addError = ref('')
 const newDelivery = ref({ login: '', password: '' })
 const motoboys = ref([])
+const motoboyEarnings = ref({})
+const totalEarningsTaxas = ref(0)
+const totalEarningsDeliveries = ref(0)
+const expandedBoyId = ref(null)
 const returnedOrders = ref([])
 const selectedReassign = ref({})
 const isReassigning = ref(false)
@@ -974,6 +1032,7 @@ onMounted(async () => {
               fee: Number(fee)
             }
           })
+          fetchMotoboyEarnings()
         }
 
         // 3. Notifica o Cardápio Web que o pedido foi entregue/finalizado
@@ -1576,13 +1635,16 @@ const startAdminTracking = () => {
 
       // Adiciona ou atualiza marcadores novos
       activeLocations.forEach(loc => {
+        const boyStat = getBoyStats(loc.userId)
+        const popupHtml = `<b><i class="ph ph-motorcycle" style="font-size: 1.4em; margin-right: 8px;"></i> ${loc.name}</b><br><span style="color: #10b981;">Online agora</span><div style="margin-top: 4px; font-weight: 600;">Taxa hoje: <span style="color: #38bdf8;">R$ ${boyStat.taxas.toFixed(2)}</span> <span style="font-size: 11px; color: var(--color-text-secondary); font-weight: normal;">(${boyStat.deliveries} ${boyStat.deliveries === 1 ? 'entrega' : 'entregas'})</span></div>`
         if (deliveryMarkers[loc.userId]) {
-          // Atualiza posição
+          // Atualiza posição e popup
           deliveryMarkers[loc.userId].setLatLng([loc.lat, loc.lng])
+          deliveryMarkers[loc.userId].setPopupContent(popupHtml)
         } else {
           // Cria novo pino com ícone de moto
           const marker = L.marker([loc.lat, loc.lng], { icon: motoIcon }).addTo(map)
-          marker.bindPopup(`<b><i class="ph ph-motorcycle" style="font-size: 1.4em; margin-right: 8px;"></i> ${loc.name}</b><br>Online agora`)
+          marker.bindPopup(popupHtml)
           deliveryMarkers[loc.userId] = marker
         }
       })
@@ -1624,7 +1686,8 @@ const togglePanel = () => {
   isPanelOpen.value = !isPanelOpen.value
   if (isPanelOpen.value) {
     isDemoPanelOpen.value = false
-    if (motoboys.value.length === 0) fetchMotoboys()
+    fetchMotoboys()
+    fetchMotoboyEarnings()
   }
 }
 
@@ -2001,11 +2064,52 @@ const fetchCwOrders = async () => {
   }
 }
 
+const toggleBoyOrders = (boyId) => {
+  if (expandedBoyId.value === boyId) {
+    expandedBoyId.value = null
+  } else {
+    expandedBoyId.value = boyId
+  }
+}
+
+const getBoyStats = (boyId) => {
+  if (!boyId) return { taxas: 0, deliveries: 0, orders: [] }
+  return motoboyEarnings.value[String(boyId)] || 
+         motoboyEarnings.value[Number(boyId)] || 
+         { taxas: 0, deliveries: 0, orders: [] }
+}
+
+const formatOrderTime = (isoString) => {
+  if (!isoString) return ''
+  try {
+    const d = new Date(isoString)
+    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  } catch {
+    return ''
+  }
+}
+
+const fetchMotoboyEarnings = async () => {
+  try {
+    const res = await $fetch('/api/earnings')
+    if (res && res.stats) {
+      motoboyEarnings.value = res.stats
+      totalEarningsTaxas.value = Number(res.totalTaxas || 0)
+      totalEarningsDeliveries.value = Number(res.totalDeliveries || 0)
+    }
+  } catch (error) {
+    console.error('Erro ao buscar taxas dos motoboys', error)
+  }
+}
+
 const fetchMotoboys = async () => {
   isLoading.value = true
   try {
     const data = await $fetch('/api/delivery')
     motoboys.value = data
+    if (userRole.value === 'admin') {
+      fetchMotoboyEarnings()
+    }
   } catch (error) {
     console.error('Erro ao buscar motoboys', error)
   } finally {
@@ -2215,19 +2319,151 @@ const triggerStopRoute = () => {
 }
 .btn-icon:hover { background: var(--color-surface-hover); transform: scale(1.05); }
 
-/* Lista de entregadores */
-.delivery-list { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+/* Lista de entregadores e taxas */
+.delivery-list { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+
+.delivery-summary-card {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 4px;
+}
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.summary-label {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.summary-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+.summary-value.highlight {
+  color: #10b981;
+}
+.summary-divider {
+  width: 1px;
+  height: 28px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.delivery-card {
+  display: flex;
+  flex-direction: column;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+.delivery-card:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
 .delivery-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  background: rgba(0,0,0,0.2);
-  border-radius: 12px;
+  padding: 12px 14px;
 }
-.delivery-info { display: flex; flex-direction: column; }
+.delivery-info { display: flex; flex-direction: column; gap: 4px; }
+.delivery-title-row { display: flex; align-items: center; gap: 8px; }
 .delivery-name { font-weight: 600; font-size: 15px; }
-.delivery-login { font-size: 13px; color: var(--color-text-secondary); }
+
+.delivery-fee-badge {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-secondary);
+}
+.delivery-fee-badge.has-fee {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.delivery-sub-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.delivery-count {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.delivery-expand-hint {
+  font-size: 11px;
+  color: #38bdf8;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.delivery-expand-hint:hover {
+  text-decoration: underline;
+}
+
+.delivery-orders-dropdown {
+  padding: 10px 14px 12px 14px;
+  background: rgba(0, 0, 0, 0.35);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.empty-orders-text {
+  color: var(--color-text-secondary);
+  font-style: italic;
+  font-size: 12px;
+  text-align: center;
+  padding: 4px 0;
+}
+.orders-mini-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.order-mini-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.order-mini-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.order-mini-id {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+.order-mini-time {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+.order-mini-fee {
+  font-weight: 700;
+  color: #10b981;
+}
+
 .delivery-actions { display: flex; align-items: center; gap: 8px; }
 .btn-edit { background: rgba(56, 189, 248, 0.15); }
 .btn-edit:hover { background: rgba(56, 189, 248, 0.3); }

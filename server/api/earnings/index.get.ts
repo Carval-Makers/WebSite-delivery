@@ -4,10 +4,6 @@ export default defineEventHandler(async (event) => {
   const query = getQuery(event)
   const motoboyId = query.motoboyId
 
-  if (!motoboyId) {
-    throw createError({ statusCode: 400, statusMessage: 'motoboyId é obrigatório' })
-  }
-
   try {
     const supabase = getSupabase()
     
@@ -28,24 +24,58 @@ export default defineEventHandler(async (event) => {
     const shiftStartUtc = new Date(shiftStartBr.getTime() + (3600000 * 3))
     const shiftStartIso = shiftStartUtc.toISOString()
 
-    // Busca os ganhos desde o início do turno
-    const { data, error } = await supabase
+    let queryBuilder = supabase
       .from('motoboy_earnings')
-      .select('fee')
-      .eq('motoboy_id', String(motoboyId))
+      .select('id, motoboy_id, order_id, fee, created_at')
       .gte('created_at', shiftStartIso)
+      .order('created_at', { ascending: false })
+
+    if (motoboyId) {
+      queryBuilder = queryBuilder.eq('motoboy_id', String(motoboyId))
+    }
+
+    const { data, error } = await queryBuilder
 
     if (error) {
       console.error('Supabase select error:', error)
       throw error
     }
 
-    const totalTaxas = data.reduce((acc, curr) => acc + Number(curr.fee), 0)
-    const totalDeliveries = data.length
+    const earnings = data || []
+
+    if (motoboyId) {
+      const totalTaxas = earnings.reduce((acc, curr) => acc + Number(curr.fee || 0), 0)
+      const totalDeliveries = earnings.length
+      return { 
+        taxas: totalTaxas, 
+        deliveries: totalDeliveries,
+        orders: earnings,
+        shift_start: shiftStartIso
+      }
+    }
+
+    // Se buscou de todos os motoboys (visão admin)
+    const stats: Record<string, { taxas: number; deliveries: number; orders: any[] }> = {}
+    let grandTotalTaxas = 0
+    let grandTotalDeliveries = 0
+
+    for (const item of earnings) {
+      const boyId = String(item.motoboy_id)
+      if (!stats[boyId]) {
+        stats[boyId] = { taxas: 0, deliveries: 0, orders: [] }
+      }
+      const feeNum = Number(item.fee || 0)
+      stats[boyId].taxas += feeNum
+      stats[boyId].deliveries += 1
+      stats[boyId].orders.push(item)
+      grandTotalTaxas += feeNum
+      grandTotalDeliveries += 1
+    }
 
     return { 
-      taxas: totalTaxas, 
-      deliveries: totalDeliveries,
+      stats, 
+      totalTaxas: grandTotalTaxas, 
+      totalDeliveries: grandTotalDeliveries,
       shift_start: shiftStartIso
     }
   } catch (error: any) {
