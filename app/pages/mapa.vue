@@ -14,7 +14,7 @@
     <div class="map-overlay-top">
       <div class="glass-panel profile-badge">
         <span v-if="userRole === 'admin'">Loja Ativa</span>
-        <span v-else>Motoboy Online: {{ userName }} - Taxa: R$ {{ totalTaxas.toFixed(2) }} ({{ cwOrders ? cwOrders.length : 0 }})</span>
+        <span v-else>Motoboy Online: {{ userName }} - Taxa: R$ {{ dailyTaxas.toFixed(2) }} ({{ dailyDeliveries }})</span>
       </div>
     </div>
 
@@ -304,25 +304,34 @@ const isPointInPolygon = (point, vs) => {
   return inside
 }
 
-// Calcula o valor total das taxas do motoboy logado
-const totalTaxas = computed(() => {
-  let total = 0
-  if (!cwOrders.value) return total
+// --- ESTADO DIÁRIO DO MOTOBOY ---
+const dailyTaxas = ref(0)
+const dailyDeliveries = ref(0)
 
-  cwOrders.value.forEach(order => {
-    const lat = order.lat || Number(order.delivery_address?.latitude)
-    const lng = order.lng || Number(order.delivery_address?.longitude)
-    if (lat && lng) {
-      for (const zone of deliveryZones.value) {
-        if (isPointInPolygon([lat, lng], zone.polygon_points)) {
-          total += Number(zone.price)
-          break
-        }
-      }
-    }
-  })
-  return total
-})
+const loadDailyStats = () => {
+  if (userRole.value !== 'delivery') return
+  const today = new Date().toISOString().split('T')[0]
+  const key = `motoboy_stats_${userId.value}_${today}`
+  const saved = localStorage.getItem(key)
+  if (saved) {
+    try {
+      const data = JSON.parse(saved)
+      dailyTaxas.value = data.taxas || 0
+      dailyDeliveries.value = data.deliveries || 0
+    } catch(e) {}
+  }
+}
+
+const updateDailyStats = (fee) => {
+  dailyTaxas.value += fee
+  dailyDeliveries.value += 1
+  const today = new Date().toISOString().split('T')[0]
+  const key = `motoboy_stats_${userId.value}_${today}`
+  localStorage.setItem(key, JSON.stringify({
+    taxas: dailyTaxas.value,
+    deliveries: dailyDeliveries.value
+  }))
+}
 
 const getOrderChannel = (order) => {
   if (!order) return 'direct'
@@ -427,6 +436,25 @@ const executeConfirmDelivery = async (orderId) => {
       map.removeLayer(orderMarkers[orderId])
       delete orderMarkers[orderId]
     }
+    
+    // --- Lógica da Taxa ---
+    const order = cwOrders.value.find(o => String(o.id) === String(orderId))
+    let fee = 0
+    if (order) {
+      const lat = order.lat || Number(order.delivery_address?.latitude)
+      const lng = order.lng || Number(order.delivery_address?.longitude)
+      if (lat && lng) {
+        for (const zone of deliveryZones.value) {
+          if (isPointInPolygon([lat, lng], zone.polygon_points)) {
+            fee = Number(zone.price)
+            break
+          }
+        }
+      }
+    }
+    updateDailyStats(fee)
+    // -----------------------
+
     cwOrders.value = cwOrders.value.filter(o => String(o.id) !== String(orderId))
 
     // Se estiver em rota para este pedido, encerra a rota
@@ -497,13 +525,7 @@ const fetchZones = async () => {
       poly.zoneId = zone.id
       
       const center = poly.getBounds().getCenter()
-      let priceHtml = ''
-      
-      if (userRole.value === 'admin') {
-        priceHtml = `<div style="background: rgba(255,255,255,0.9); border: 2px solid #3b82f6; border-radius: 8px; padding: 4px 8px; font-weight: bold; color: #1d4ed8; font-size: 14px; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">R$ ${Number(zone.price).toFixed(2)}<br><span style="font-size:10px;color:#6b7280;">${zone.name}</span></div>`
-      } else {
-        priceHtml = `<div style="font-weight: 900; color: #1d4ed8; font-size: 18px; white-space: nowrap; text-shadow: 2px 2px 0 #fff, -2px -2px 0 #fff, 2px -2px 0 #fff, -2px 2px 0 #fff, 0 2px 0 #fff, 0 -2px 0 #fff, 2px 0 0 #fff, -2px 0 0 #fff;">R$ ${Number(zone.price).toFixed(2)}</div>`
-      }
+      let priceHtml = `<div style="font-weight: 900; color: #1d4ed8; font-size: 18px; white-space: nowrap; text-shadow: 2px 2px 0 #fff, -2px -2px 0 #fff, 2px -2px 0 #fff, -2px 2px 0 #fff, 0 2px 0 #fff, 0 -2px 0 #fff, 2px 0 0 #fff, -2px 0 0 #fff;">R$ ${Number(zone.price).toFixed(2)}</div>`
       
       const labelIcon = L.divIcon({ html: priceHtml, className: '', iconSize: null, iconAnchor: [40, 20] })
       const labelMarker = L.marker(center, { icon: labelIcon, interactive: false }).addTo(map)
@@ -641,8 +663,9 @@ onMounted(async () => {
 
   // Inicia Lógica de Rastreamento dependendo da Role
   if (userRole.value === 'delivery') {
+    loadDailyStats()
     startDeliveryTracking()
-    
+    checkMotoboyWakeLock() // Mantem a tela ligada para motoboys
     // Funções de rota agora estão definidas corretamente dentro do import.meta.client para evitar sobreposição
   } else if (userRole.value === 'admin') {
     startAdminTracking()
