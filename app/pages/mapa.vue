@@ -399,6 +399,50 @@ const isPointInPolygon = (point, vs) => {
   return inside
 }
 
+// Paleta de cores para distinguir cada zona de entrega
+const ZONE_COLORS = [
+  '#3b82f6', // Azul
+  '#10b981', // Verde Esmeralda
+  '#f59e0b', // Âmbar / Laranja
+  '#ec4899', // Rosa
+  '#8b5cf6', // Roxo
+  '#06b6d4', // Ciano
+  '#f97316', // Laranja Vivo
+  '#14b8a6', // Teal
+  '#e11d48', // Carmesim
+  '#84cc16', // Verde Lima
+  '#6366f1', // Índigo
+  '#d946ef'  // Fúcsia
+]
+
+const getZoneColor = (zone, index = 0) => {
+  if (zone?.color) return zone.color
+  if (typeof index === 'number' && index >= 0) {
+    return ZONE_COLORS[index % ZONE_COLORS.length]
+  }
+  const str = String(zone?.id || zone?.name || '')
+  let hash = 0
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) & 0xffffff
+  }
+  return ZONE_COLORS[Math.abs(hash) % ZONE_COLORS.length]
+}
+
+// Helper unificado para calcular a taxa de entrega da zona
+const calculateOrderFee = (order) => {
+  if (!order) return 0
+  const lat = order.lat || Number(order.delivery_address?.latitude)
+  const lng = order.lng || Number(order.delivery_address?.longitude)
+  if (lat && lng) {
+    for (const zone of deliveryZones.value) {
+      if (zone.polygon_points && isPointInPolygon([lat, lng], zone.polygon_points)) {
+        return Number(zone.price) || 0
+      }
+    }
+  }
+  return 0
+}
+
 // --- ESTADO DIÁRIO DO MOTOBOY ---
 const dailyTaxas = ref(0)
 const dailyDeliveries = ref(0)
@@ -533,19 +577,7 @@ const executeConfirmDelivery = async (orderId) => {
     
     // --- Lógica da Taxa ---
     const order = cwOrders.value.find(o => String(o.id) === String(orderId))
-    let fee = 0
-    if (order) {
-      const lat = order.lat || Number(order.delivery_address?.latitude)
-      const lng = order.lng || Number(order.delivery_address?.longitude)
-      if (lat && lng) {
-        for (const zone of deliveryZones.value) {
-          if (isPointInPolygon([lat, lng], zone.polygon_points)) {
-            fee = Number(zone.price)
-            break
-          }
-        }
-      }
-    }
+    const fee = calculateOrderFee(order)
     updateDailyStats(fee, orderId)
     // -----------------------
 
@@ -573,7 +605,6 @@ const executeConfirmDelivery = async (orderId) => {
     }
   } catch (error) {
     console.error('Erro ao confirmar entrega', error)
-    
   }
 }
 
@@ -587,19 +618,7 @@ const executeReturnDelivery = async (orderId) => {
     
     // --- Lógica da Taxa (Ganha a taxa mesmo devolvendo) ---
     const order = cwOrders.value.find(o => String(o.id) === String(orderId))
-    let fee = 0
-    if (order) {
-      const lat = order.lat || Number(order.delivery_address?.latitude)
-      const lng = order.lng || Number(order.delivery_address?.longitude)
-      if (lat && lng) {
-        for (const zone of deliveryZones.value) {
-          if (isPointInPolygon([lat, lng], zone.polygon_points)) {
-            fee = Number(zone.price)
-            break
-          }
-        }
-      }
-    }
+    const fee = calculateOrderFee(order)
     updateDailyStats(fee, orderId)
     // -----------------------
 
@@ -671,13 +690,19 @@ const fetchZones = async () => {
     Object.values(zonePolygons).forEach(p => map.removeLayer(p))
     zonePolygons = {}
 
-    // Desenha as zonas
-    deliveryZones.value.forEach(zone => {
-      const poly = L.polygon(zone.polygon_points, { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.2 })
+    // Desenha as zonas com cores distintas
+    deliveryZones.value.forEach((zone, index) => {
+      const zoneColor = getZoneColor(zone, index)
+      const poly = L.polygon(zone.polygon_points, { 
+        color: zoneColor, 
+        fillColor: zoneColor, 
+        fillOpacity: 0.22,
+        weight: 3 
+      })
       poly.zoneId = zone.id
       
       const center = poly.getBounds().getCenter()
-      let priceHtml = `<div style="font-weight: 900; color: #1d4ed8; font-size: 18px; white-space: nowrap; text-shadow: 2px 2px 0 #fff, -2px -2px 0 #fff, 2px -2px 0 #fff, -2px 2px 0 #fff, 0 2px 0 #fff, 0 -2px 0 #fff, 2px 0 0 #fff, -2px 0 0 #fff;">R$ ${Number(zone.price).toFixed(2)}</div>`
+      let priceHtml = `<div style="font-weight: 900; color: ${zoneColor}; font-size: 18px; white-space: nowrap; text-shadow: 2px 2px 0 #fff, -2px -2px 0 #fff, 2px -2px 0 #fff, -2px 2px 0 #fff, 0 2px 0 #fff, 0 -2px 0 #fff, 2px 0 0 #fff, -2px 0 0 #fff;">R$ ${Number(zone.price).toFixed(2)}</div>`
       
       const labelIcon = L.divIcon({ html: priceHtml, className: '', iconSize: null, iconAnchor: [40, 20] })
       const labelMarker = L.marker(center, { icon: labelIcon, interactive: false, pmIgnore: true })
@@ -911,8 +936,70 @@ onMounted(async () => {
         updateAdminPins()
       } catch (error) {
         console.error('Erro ao remover atribuição.', error)
-        
       }
+    }
+
+    window.adminCompleteDelivery = async (orderId, targetMotoboyId, targetMotoboyName) => {
+      const order = cwOrders.value.find(o => String(o.id) === String(orderId))
+      const orderNum = order ? getOrderNumber(order) : orderId
+      
+      if (!confirm(`Deseja realmente concluir a entrega #${orderNum} para o motoboy ${targetMotoboyName}?\n\nO motoboy receberá o valor da taxa e a entrega será computada normalmente no relatório dele.`)) {
+        return
+      }
+
+      try {
+        // 1. Calcula a taxa da zona correspondente
+        const fee = calculateOrderFee(order)
+
+        // 2. Salva o ganho do motoboy no Supabase (taxa + contagem de entrega)
+        if (targetMotoboyId && orderId !== 'DEMO_TUTORIAL') {
+          await $fetch('/api/earnings', {
+            method: 'POST',
+            body: {
+              motoboyId: String(targetMotoboyId),
+              orderId: String(orderId),
+              fee: Number(fee)
+            }
+          })
+        }
+
+        // 3. Notifica o Cardápio Web que o pedido foi entregue/finalizado
+        if (orderId !== 'DEMO_TUTORIAL') {
+          await $fetch(`/api/cw/api/partner/v1/orders/${orderId}/delivered`, { method: 'POST' })
+            .catch(async () => {
+              return await $fetch(`/api/cw/api/partner/v1/orders/${orderId}/finalize`, { method: 'POST' }).catch(() => {})
+            })
+        }
+
+        // 4. Remove a atribuição do Supabase
+        await $fetch(`/api/assign/${orderId}`, { method: 'DELETE' }).catch(() => {})
+
+        // 5. Remove da tela otimista
+        if (orderMarkers[orderId]) {
+          map.removeLayer(orderMarkers[orderId])
+          delete orderMarkers[orderId]
+        }
+        cwOrders.value = cwOrders.value.filter(o => String(o.id) !== String(orderId))
+
+        // 6. Atualiza os pinos de pedidos do admin
+        updateAdminPins()
+
+        alert(`Entrega #${orderNum} concluída com sucesso!\nTaxa de R$ ${fee.toFixed(2)} computada para ${targetMotoboyName}.`)
+      } catch (error) {
+        console.error('Erro ao concluir entrega pelo admin:', error)
+        alert('Erro ao concluir entrega. Verifique o console ou tente novamente.')
+      }
+    }
+
+    window.adminCompleteWithSelected = async (orderId) => {
+      const select = document.getElementById(`select-motoboy-${orderId}`)
+      if (!select || !select.value) {
+        alert('Por favor, selecione um motoboy na lista para concluir a entrega.')
+        return
+      }
+      const motoboyId = Number(select.value)
+      const motoboyName = select.options[select.selectedIndex].text
+      await window.adminCompleteDelivery(orderId, motoboyId, motoboyName)
     }
   }
 
@@ -1564,7 +1651,7 @@ const updateAdminPins = async () => {
     const assignData = await $fetch('/api/assign')
     const assignedMap = {}
     assignData.forEach((a) => {
-      assignedMap[String(a.orderId)] = a.motoboyName
+      assignedMap[String(a.orderId)] = { motoboyId: a.motoboyId, motoboyName: a.motoboyName }
     })
 
     const currentOrderIds = new Set(cwOrders.value.map(o => String(o.id)))
@@ -1587,8 +1674,10 @@ const updateAdminPins = async () => {
       if (lat && lng && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && (lat !== 0 || lng !== 0)) {
         
         // Verifica se já foi atribuído no banco local
-        const motoboyName = assignedMap[orderIdStr]
-        const isAssigned = !!motoboyName
+        const assignedInfo = assignedMap[orderIdStr]
+        const isAssigned = !!assignedInfo
+        const motoboyName = assignedInfo?.motoboyName
+        const motoboyId = assignedInfo?.motoboyId
         
         let pinGradient = 'linear-gradient(135deg, #9ca3af 0%, #4b5563 100%)' // Padrão Cinza
         let canAssign = false
@@ -1639,11 +1728,22 @@ const updateAdminPins = async () => {
         let popupHtml = `<b>${order.customer?.name || order.cliente || 'Cliente'} #${orderNum}</b>${channelTag}<br>Status: <strong>${order.status}</strong>${timeInfo}`
         
         if (isAssigned) {
-          popupHtml += `<br><span style="color: #3b82f6; font-weight: bold;"><i class="ph ph-motorcycle" style="font-size: 1.4em; margin-right: 8px;"></i> Entregador: ${motoboyName}</span>`
-          popupHtml += `<br><button onclick="window.unassignOrder('${orderIdStr}')" style="margin-top:10px; width:100%; background:rgba(239, 68, 68, 0.2); color:#f87171; border:none; padding:4px; border-radius:4px; cursor:pointer;">Desalocar Motoboy</button>`
-        } 
-        
-        if (canAssign && !isAssigned) {
+          popupHtml += `
+            <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 6px;">
+              <span style="color: #3b82f6; font-weight: bold; font-size: 13px;">
+                <i class="ph ph-motorcycle" style="font-size: 1.2em; margin-right: 4px;"></i> Entregador: ${motoboyName}
+              </span>
+              <button onclick="window.adminCompleteDelivery('${orderIdStr}', '${motoboyId}', '${motoboyName}')" 
+                style="width: 100%; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; padding: 7px 10px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                <i class="ph ph-check-circle" style="font-size: 1.2em;"></i> Concluir Entrega (${motoboyName})
+              </button>
+              <button onclick="window.unassignOrder('${orderIdStr}')" 
+                style="width: 100%; background: rgba(239, 68, 68, 0.15); color: #f87171; border: none; padding: 4px; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                Desalocar Motoboy
+              </button>
+            </div>
+          `
+        } else {
           // Select Box para o Admin escolher
           let optionsHtml = '<option value="">-- Escolha um Motoboy --</option>'
           motoboys.value.forEach(m => {
@@ -1652,12 +1752,19 @@ const updateAdminPins = async () => {
           
           popupHtml += `
             <div style="margin-top: 10px;">
-              <select id="select-motoboy-${orderIdStr}" style="width:100%; padding: 4px; border-radius:4px;">
+              <select id="select-motoboy-${orderIdStr}" style="width: 100%; padding: 6px; border-radius: 6px; background: #1e293b; color: white; border: 1px solid #334155; margin-bottom: 6px; font-size: 13px;">
                 ${optionsHtml}
               </select>
-              <button onclick="window.assignOrder('${orderIdStr}')" style="margin-top:5px; width:100%; background:#10b981; color:white; border:none; padding:4px; border-radius:4px; cursor:pointer;">
-                Atribuir ao Motoboy
-              </button>
+              <div style="display: flex; flex-direction: column; gap: 6px;">
+                ${canAssign ? `
+                  <button onclick="window.assignOrder('${orderIdStr}')" style="width: 100%; background: #3b82f6; color: white; border: none; padding: 6px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px;">
+                    Atribuir ao Motoboy
+                  </button>
+                ` : ''}
+                <button onclick="window.adminCompleteWithSelected('${orderIdStr}')" style="width: 100%; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; padding: 6px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                  <i class="ph ph-check-circle" style="font-size: 1.2em;"></i> Concluir Entrega
+                </button>
+              </div>
             </div>
           `
         }
