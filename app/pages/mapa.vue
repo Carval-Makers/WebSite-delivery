@@ -26,7 +26,7 @@
       class="fab-motoboy btn-primary"
       @click="togglePanel"
     >
-      🏍️ Motoboy
+      <i class="ph ph-motorcycle" style="font-size: 1.4em; margin-right: 8px;"></i> Motoboy
     </button>
 
     <!-- Fab Admin "Demonstrativo" -->
@@ -35,7 +35,7 @@
       class="fab-demo btn-primary"
       @click="toggleDemoPanel"
     >
-      🕹️ Demonstrativo
+      <i class="ph ph-game-controller" style="font-size: 1.4em; margin-right: 8px;"></i> Demonstrativo
     </button>
 
     <!-- Fab Admin "Devolvidos" -->
@@ -46,7 +46,7 @@
       @click="toggleReturnedPanel"
       title="Pedidos Devolvidos"
     >
-      ↩️ Devolvidos
+      <i class="ph ph-arrow-u-up-left" style="font-size: 1.2em; margin-right: 8px;"></i> Devolvidos
       <span v-if="returnedOrders.length > 0" class="badge-count" style="background: red; color: white; padding: 2px 6px; border-radius: 12px; font-size: 12px; position: absolute; top: -5px; right: -5px;">{{ returnedOrders.length }}</span>
     </button>
 
@@ -56,7 +56,7 @@
       class="fab-taxas btn-secondary"
       @click="toggleEditZones"
     >
-      🗺️ Taxas
+      <i class="ph ph-map-trifold" style="font-size: 1.4em; margin-right: 8px;"></i> Taxas
     </button>
 
     <!-- Fab Motoboy "Parar Rota" -->
@@ -78,7 +78,7 @@
     >
       <span class="wakelock-dot"></span>
       <span v-if="isWakeLockActive">💡 Tela Sempre Ativa</span>
-      <span v-else>⚠️ Toque p/ Manter Ligada</span>
+      <span v-else><i class="ph ph-warning-circle" style="font-size: 1.2em;"></i> Toque p/ Manter Ligada</span>
     </button>
 
     <!-- Fab Motoboy "Melhor Rota" -->
@@ -97,7 +97,7 @@
       <div class="glass-panel delivery-panel" style="max-height: 400px;">
         <div class="panel-header">
           <h2>Simulador</h2>
-          <button class="btn-icon" @click="toggleDemoPanel">❌</button>
+          <button class="btn-icon" @click="toggleDemoPanel"><i class="ph ph-x" style="font-size: 1.2em;"></i></button>
         </div>
         <div class="panel-content" style="padding: 15px;">
           <p style="margin-bottom: 15px; font-size: 14px; color: var(--color-text-secondary);">
@@ -127,8 +127,8 @@
         <div class="panel-header">
           <h2>Motoboys</h2>
           <button class="btn-icon" @click="toggleAddForm" title="Registrar novo motoboy">
-            <span v-if="!showAddForm">➕</span>
-            <span v-else>❌</span>
+            <span v-if="!showAddForm"><i class="ph ph-plus" style="font-size: 1.2em;"></i></span>
+            <span v-else><i class="ph ph-x" style="font-size: 1.2em;"></i></span>
           </button>
         </div>
 
@@ -171,7 +171,7 @@
       <div class="glass-panel delivery-panel">
         <div class="panel-header">
           <h2>Pedidos Devolvidos</h2>
-          <button class="btn-icon" @click="toggleReturnedPanel" title="Fechar">❌</button>
+          <button class="btn-icon" @click="toggleReturnedPanel" title="Fechar"><i class="ph ph-x" style="font-size: 1.2em;"></i></button>
         </div>
         <div class="motoboy-list" style="margin-top: 10px;">
           <div v-if="returnedOrders.length === 0" class="empty-state">Nenhum pedido devolvido no momento.</div>
@@ -215,7 +215,7 @@
           <div class="confirm-modal-title">
             <span class="confirm-modal-icon">
               <template v-if="detectedChannel === 'ifood'">🛵</template>
-              <template v-else-if="detectedChannel === '99food'">🍔</template>
+              <template v-else-if="detectedChannel === '99food'"><i class="ph ph-storefront" style="font-size: 1.2em;"></i></template>
               <template v-else>📦</template>
             </span>
             <div>
@@ -228,7 +228,7 @@
               <p class="confirm-modal-subtitle">{{ pendingOrderInfo }}</p>
             </div>
           </div>
-          <button class="btn-icon" @click="closeConfirmModal" title="Fechar">❌</button>
+          <button class="btn-icon" @click="closeConfirmModal" title="Fechar"><i class="ph ph-x" style="font-size: 1.2em;"></i></button>
         </div>
 
         <p class="confirm-modal-desc">
@@ -260,7 +260,7 @@
                 <small>Abrir link de confirmação do iFood</small>
               </div>
             </div>
-            <span class="platform-arrow">↗</span>
+            <span class="platform-arrow"><i class="ph ph-arrow-up-right"></i></span>
           </button>
 
           <!-- Opção 99Food: aparece se for canal 99food, ou modo demo, ou se o motoboy clicou em alterar canal -->
@@ -270,13 +270,13 @@
             @click="handleConfirmPlatform('99food')"
           >
             <div class="platform-btn-left">
-              <span class="platform-logo">🍔</span>
+              <span class="platform-logo"><i class="ph ph-storefront" style="font-size: 1.2em;"></i></span>
               <div class="platform-text">
                 <strong>Confirmar no 99Food</strong>
                 <small>Abrir link de confirmação do 99Food</small>
               </div>
             </div>
-            <span class="platform-arrow">↗</span>
+            <span class="platform-arrow"><i class="ph ph-arrow-up-right"></i></span>
           </button>
 
           <!-- Opção Direto / Cardápio Web: aparece se for direto, ou modo demo, ou se o motoboy clicou em alterar canal -->
@@ -287,13 +287,13 @@
             @click="handleConfirmPlatform('direct')"
           >
             <div class="platform-btn-left">
-              <span class="platform-logo">✅</span>
+              <span class="platform-logo"><i class="ph ph-check-circle" style="font-size: 1.2em;"></i></span>
               <div class="platform-text">
                 <strong>Concluir Entrega Direta</strong>
                 <small>Finalizar no app sem link externo</small>
               </div>
             </div>
-            <span class="platform-arrow">✔</span>
+            <span class="platform-arrow"><i class="ph ph-check"></i></span>
           </button>
           
           <button 
@@ -303,7 +303,7 @@
             @click="executeReturnDelivery(pendingOrder.id)"
           >
             <div class="platform-btn-left">
-              <span class="platform-logo">⚠️</span>
+              <span class="platform-logo"><i class="ph ph-warning-circle" style="font-size: 1.2em;"></i></span>
               <div class="platform-text">
                 <strong>Cliente Não Atendeu</strong>
                 <small>Devolver para a Loja</small>
@@ -1111,7 +1111,7 @@ const processMotoLocation = async (lat, lng, heading) => {
 
   if (!myMotoboyMarker) {
     const motoIcon = L.divIcon({
-      html: `<div id="my-moto-icon" style="font-size: 32px; filter: drop-shadow(0px 4px 4px rgba(0,0,0,0.4)); transform: rotate(${angle}deg); transition: transform 0.5s;">🏍️</div>`,
+      html: `<div id="my-moto-icon" style="font-size: 32px; filter: drop-shadow(0px 4px 4px rgba(0,0,0,0.4)); transform: rotate(${angle}deg); transition: transform 0.5s;"><i class="ph ph-motorcycle" style="font-size: 1.4em; margin-right: 8px;"></i></div>`,
       className: 'custom-moto-icon', iconSize: [40, 40], iconAnchor: [20, 20]
     })
     myMotoboyMarker = L.marker([lat, lng], { icon: motoIcon }).addTo(map)
@@ -1325,7 +1325,7 @@ const startDeliveryTracking = () => {
 
           const channel = getOrderChannel(order)
           let channelBadge = ''
-          let confirmBtnText = '✅ Confirmar Entrega'
+          let confirmBtnText = '<i class="ph ph-check-circle" style="font-size: 1.2em;"></i> Confirmar Entrega'
           let confirmBtnBg = 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
 
           if (channel === 'ifood') {
@@ -1334,7 +1334,7 @@ const startDeliveryTracking = () => {
             confirmBtnBg = 'linear-gradient(135deg, #ea1d2c 0%, #b9101d 100%)'
           } else if (channel === '99food') {
             channelBadge = '<span style="background:#ff8c00; color:white; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:bold; margin-left:6px;">99Food</span>'
-            confirmBtnText = '🍔 Confirmar 99Food'
+            confirmBtnText = '<i class="ph ph-storefront" style="font-size: 1.2em;"></i> Confirmar 99Food'
             confirmBtnBg = 'linear-gradient(135deg, #ff8c00 0%, #d97706 100%)'
           }
 
@@ -1342,9 +1342,9 @@ const startDeliveryTracking = () => {
           let popupHtml = `<b>Sua Entrega #${orderNum}</b>${channelBadge}<br>${order.customer?.name || order.cliente || 'Cliente'}<br>Status: ${order.status}`
           
           if (!isThisRouteActive) {
-            popupHtml += `<br><button onclick="window.startRoute(${lat}, ${lng}, '${order.id}')" style="margin-top:10px; width:100%; background:#10b981; color:white; border:none; padding:6px; border-radius:4px; font-weight:bold; cursor:pointer;">📍 Iniciar GPS (Traçar Rota)</button>`
+            popupHtml += `<br><button onclick="window.startRoute(${lat}, ${lng}, '${order.id}')" style="margin-top:10px; width:100%; background:#10b981; color:white; border:none; padding:6px; border-radius:4px; font-weight:bold; cursor:pointer;"><i class="ph ph-navigation-arrow" style="font-size: 1.2em; margin-right: 8px;"></i> Iniciar GPS (Traçar Rota)</button>`
           } else {
-            popupHtml += `<br><button onclick="window.stopRoute()" style="margin-top:10px; width:100%; background:rgba(239, 68, 68, 0.2); color:#f87171; border:none; padding:6px; border-radius:4px; font-weight:bold; cursor:pointer;">❌ Parar Rota</button>`
+            popupHtml += `<br><button onclick="window.stopRoute()" style="margin-top:10px; width:100%; background:rgba(239, 68, 68, 0.2); color:#f87171; border:none; padding:6px; border-radius:4px; font-weight:bold; cursor:pointer;"><i class="ph ph-x" style="font-size: 1.2em;"></i> Parar Rota</button>`
           }
           
           if (isNear) {
@@ -1396,7 +1396,7 @@ const startAdminTracking = () => {
 
       // Define o ícone de moto
       const motoIcon = L.divIcon({
-        html: '<div style="font-size: 28px; filter: drop-shadow(0px 4px 4px rgba(0,0,0,0.4));">🏍️</div>',
+        html: '<div style="font-size: 28px; filter: drop-shadow(0px 4px 4px rgba(0,0,0,0.4));"><i class="ph ph-motorcycle" style="font-size: 1.4em; margin-right: 8px;"></i></div>',
         className: 'custom-moto-icon',
         iconSize: [30, 30],
         iconAnchor: [15, 15],
@@ -1411,7 +1411,7 @@ const startAdminTracking = () => {
         } else {
           // Cria novo pino com ícone de moto
           const marker = L.marker([loc.lat, loc.lng], { icon: motoIcon }).addTo(map)
-          marker.bindPopup(`<b>🏍️ ${loc.name}</b><br>Online agora`)
+          marker.bindPopup(`<b><i class="ph ph-motorcycle" style="font-size: 1.4em; margin-right: 8px;"></i> ${loc.name}</b><br>Online agora`)
           deliveryMarkers[loc.userId] = marker
         }
       })
@@ -1568,7 +1568,7 @@ const updateAdminPins = async () => {
         let popupHtml = `<b>${order.customer?.name || order.cliente || 'Cliente'} #${orderNum}</b>${channelTag}<br>Status: <strong>${order.status}</strong>${timeInfo}`
         
         if (isAssigned) {
-          popupHtml += `<br><span style="color: #3b82f6; font-weight: bold;">🏍️ Entregador: ${motoboyName}</span>`
+          popupHtml += `<br><span style="color: #3b82f6; font-weight: bold;"><i class="ph ph-motorcycle" style="font-size: 1.4em; margin-right: 8px;"></i> Entregador: ${motoboyName}</span>`
           popupHtml += `<br><button onclick="window.unassignOrder('${orderIdStr}')" style="margin-top:10px; width:100%; background:rgba(239, 68, 68, 0.2); color:#f87171; border:none; padding:4px; border-radius:4px; cursor:pointer;">Desalocar Motoboy</button>`
         } 
         
@@ -1771,62 +1771,44 @@ const triggerStopRoute = () => {
 .map-overlay-top { position: absolute; top: 20px; left: 0; width: 100%; display: flex; justify-content: center; z-index: 1000; pointer-events: none; }
 .profile-badge { padding: 10px 20px; border-radius: 20px; font-weight: 600; color: #10b981; pointer-events: auto; }
 
-/* Fab Botões */
-.fab-motoboy {
+/* Fab Botoes Premium */
+.fab-motoboy, .fab-demo, .fab-taxas {
   position: absolute;
-  bottom: 30px;
-  right: 30px;
+  border-radius: 50%;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid rgba(255,255,255,0.1);
   z-index: 1000;
-  border-radius: 30px;
-  padding: 12px 24px;
-  box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);
+  transition: var(--transition);
 }
+.fab-motoboy { bottom: 30px; right: 30px; }
+.fab-demo { bottom: 90px; left: 20px; border-radius: 16px; width: auto; padding: 0 20px; font-weight: 600; height: 48px; }
+.fab-taxas { bottom: 150px; left: 20px; border-radius: 16px; width: auto; padding: 0 20px; font-weight: 600; height: 48px; }
 
-.fab-demo {
-  position: absolute;
-  bottom: 90px; /* Above motoboy button */
-  left: 20px;
-  z-index: 1000;
-  border-radius: 20px;
-  padding: 10px 20px;
-  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-  color: white; border: none; font-weight: 600; cursor: pointer;
-  box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);
-}
-
-.fab-taxas {
-  position: absolute;
-  bottom: 140px; /* Above demo button */
-  left: 20px;
-  z-index: 1000;
-  border-radius: 20px;
-  padding: 10px 20px;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  color: white; border: none; font-weight: 600; cursor: pointer;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-}
-
-.fab-taxas:hover {
-  transform: translateY(-2px);
-}
-.fab-demo:hover {
-  transform: translateY(-2px);
+.fab-motoboy:hover, .fab-demo:hover, .fab-taxas:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 15px 30px -5px rgba(0,0,0,0.4);
 }
 
 .fab-motoboy-parar {
   position: absolute;
-  top: 20px;
-  left: 20px;
-  z-index: 1000;
-  border-radius: 30px;
+  top: 24px;
+  left: 24px;
   padding: 12px 24px;
-  background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
-  color: white; border: none; font-weight: 600; cursor: pointer; transition: var(--transition);
-  box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);
-  animation: slideDownFade 0.3s ease-out;
+  border-radius: 100px;
+  font-weight: 600;
+  z-index: 1000;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: slideDownFade 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .fab-motoboy-parar:hover {
-  transform: translateY(-2px);
   box-shadow: 0 10px 20px -10px rgba(239, 68, 68, 0.6);
 }
 
@@ -1881,15 +1863,16 @@ const triggerStopRoute = () => {
 .panel-header h2 { font-size: 16px; margin: 0; }
 
 .btn-icon {
-  background: rgba(255,255,255,0.1);
-  border: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
   border-radius: 50%;
-  width: 32px; height: 32px;
+  width: 36px; height: 36px;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
   transition: var(--transition);
 }
-.btn-icon:hover { background: rgba(255,255,255,0.2); transform: scale(1.05); }
+.btn-icon:hover { background: var(--color-surface-hover); transform: scale(1.05); }
 
 /* Lista de entregadores */
 .delivery-list { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
@@ -1930,12 +1913,30 @@ const triggerStopRoute = () => {
 .error-text { color: var(--color-error); font-size: 13px; margin: 0; text-align: center; }
 
 /* Globais e Botoes compartilhados */
-.btn-primary {
-  background: linear-gradient(135deg, var(--color-primary) 0%, #8b5cf6 100%);
-  color: white; border: none; font-weight: 600; cursor: pointer; transition: var(--transition);
+/* Globais e Botoes compartilhados */
+.btn-primary, .btn-secondary, .btn-danger {
+  padding: 10px 16px;
+  border-radius: var(--border-radius-sm);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: var(--transition);
+  color: #fff;
+  border: 1px solid transparent;
 }
-.btn-primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 10px 20px -10px rgba(99, 102, 241, 0.6); }
-.btn-primary:disabled { opacity: 0.7; cursor: not-allowed; }
+
+.btn-primary { background: var(--color-primary); box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
+.btn-primary:hover:not(:disabled) { background: var(--color-primary-hover); transform: translateY(-1px); box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4); }
+
+.btn-secondary { background: var(--color-surface-hover); border-color: var(--color-border); }
+.btn-secondary:hover:not(:disabled) { background: #3f3f46; transform: translateY(-1px); }
+
+.btn-danger { background: var(--color-danger); }
+.btn-danger:hover:not(:disabled) { background: var(--color-danger-hover); transform: translateY(-1px); }
+
+.btn-primary:disabled, .btn-secondary:disabled, .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
 
 /* Customização de Ícones no Mapa */
 :deep(.custom-moto-icon) {
