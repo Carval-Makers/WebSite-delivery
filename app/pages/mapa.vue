@@ -1785,7 +1785,7 @@ const triggerStopRoute = () => {
   z-index: 1000;
   transition: var(--transition);
 }
-.fab-motoboy { bottom: 30px; right: 30px; }
+.fab-motoboy { bottom: 30px; right: 30px; width: auto; padding: 0 24px; border-radius: 28px; }
 .fab-demo { bottom: 90px; left: 20px; border-radius: 16px; width: auto; padding: 0 20px; font-weight: 600; height: 48px; }
 .fab-taxas { bottom: 150px; left: 20px; border-radius: 16px; width: auto; padding: 0 20px; font-weight: 600; height: 48px; }
 
@@ -1901,14 +1901,16 @@ const triggerStopRoute = () => {
   margin-bottom: 20px;
 }
 .form-input {
-  background: rgba(15, 17, 21, 0.6);
+  background: rgba(0, 0, 0, 0.4);
   border: 1px solid var(--color-border);
   color: var(--color-text-primary);
-  padding: 10px;
-  border-radius: 8px;
+  padding: 12px 14px;
+  border-radius: var(--border-radius-sm);
   outline: none;
+  font-family: var(--font-family);
+  transition: var(--transition);
 }
-.form-input:focus { border-color: var(--color-primary); }
+.form-input:focus { border-color: var(--color-primary); box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2); }
 .btn-small { padding: 10px; font-size: 14px; }
 .error-text { color: var(--color-error); font-size: 13px; margin: 0; text-align: center; }
 

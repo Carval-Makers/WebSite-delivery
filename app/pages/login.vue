@@ -93,7 +93,7 @@ const handleLogin = async () => {
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, var(--color-bg) 70%);
+  background: radial-gradient(circle at 50% -20%, #1e1b4b 0%, var(--color-bg) 60%);
 }
 
 .login-card {
@@ -141,27 +141,6 @@ const handleLogin = async () => {
   color: var(--color-text-primary);
 }
 
-.form-input {
-  background: rgba(15, 17, 21, 0.6);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-primary);
-  padding: 12px 16px;
-  border-radius: 8px;
-  font-size: 15px;
-  transition: var(--transition);
-  outline: none;
-}
-
-.form-input:focus {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
-  background: rgba(15, 17, 21, 0.9);
-}
-
-.form-input::placeholder {
-  color: #475569;
-}
-
 .form-actions {
   display: flex;
   justify-content: flex-end;
@@ -170,32 +149,6 @@ const handleLogin = async () => {
 .forgot-password {
   font-size: 13px;
   font-weight: 500;
-}
-
-.btn-primary {
-  background: linear-gradient(135deg, var(--color-primary) 0%, #8b5cf6 100%);
-  color: white;
-  border: none;
-  padding: 14px;
-  border-radius: 8px;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: var(--transition);
-  margin-top: 8px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-.btn-primary:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 20px -10px rgba(99, 102, 241, 0.6);
-}
-
-.btn-primary:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
 }
 
 .error-message {
