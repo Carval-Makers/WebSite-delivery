@@ -14,7 +14,7 @@
     <div class="map-overlay-top">
       <div class="glass-panel profile-badge">
         <span v-if="userRole === 'admin'">Loja Ativa</span>
-        <span v-else>Motoboy Online: {{ userName }}</span>
+        <span v-else>Motoboy Online: {{ userName }} - Taxa: R$ {{ totalTaxas.toFixed(2) }}</span>
       </div>
     </div>
 
@@ -305,6 +305,39 @@ const isEditZonesMode = ref(false)
 let currentDrawingLayer = null
 let zonePolygons = {}
 const showOtherChannels = ref(false)
+
+// Ray-casting helper para verificar se coordenada está dentro do polígono
+const isPointInPolygon = (point, vs) => {
+  const x = point[0], y = point[1]
+  let inside = false
+  for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+    const xi = vs[i][0], yi = vs[i][1]
+    const xj = vs[j][0], yj = vs[j][1]
+    const intersect = ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)
+    if (intersect) inside = !inside
+  }
+  return inside
+}
+
+// Calcula o valor total das taxas do motoboy logado
+const totalTaxas = computed(() => {
+  let total = 0
+  if (!cwOrders.value) return total
+
+  cwOrders.value.forEach(order => {
+    const lat = order.lat || Number(order.delivery_address?.latitude)
+    const lng = order.lng || Number(order.delivery_address?.longitude)
+    if (lat && lng) {
+      for (const zone of deliveryZones.value) {
+        if (isPointInPolygon([lat, lng], zone.polygon_points)) {
+          total += Number(zone.price)
+          break
+        }
+      }
+    }
+  })
+  return total
+})
 
 const getOrderChannel = (order) => {
   if (!order) return 'direct'
