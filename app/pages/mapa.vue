@@ -890,7 +890,7 @@ onMounted(async () => {
     window.assignOrder = async (orderId) => {
       const select = document.getElementById(`select-motoboy-${orderId}`)
       if (!select || !select.value) {
-        
+        alert('Por favor, selecione um motoboy na lista para atribuir.')
         return
       }
       
@@ -904,8 +904,11 @@ onMounted(async () => {
           body: { orderId, motoboyId, motoboyName }
         })
         
-        // 2. Avisa o Cardápio Web para mudar o status para "Saiu para entrega" (released)
-        if (orderId !== 'DEMO_TUTORIAL') {
+        // 2. Avisa o Cardápio Web para mudar o status para "Saiu para entrega" (released) apenas se ainda não estiver
+        const order = cwOrders.value.find(o => String(o.id) === String(orderId))
+        const isAlreadyReleased = order?.status === 'released' || order?.status === 'dispatched'
+
+        if (orderId !== 'DEMO_TUTORIAL' && !isAlreadyReleased) {
           $fetch(`/api/cw/api/partner/v1/orders/${orderId}/dispatch`, { method: 'POST' })
             .catch((cwError) => {
               // Se falhar (ex: se o pedido ainda estiver em 'confirmed' e precisar ir para 'ready' primeiro):
@@ -915,7 +918,7 @@ onMounted(async () => {
             })
         }
 
-        // 3. Atualização Otimista: Muda localmente para 'released' para a cor virar laranja instantaneamente
+        // 3. Atualização Otimista: Garante status 'released'
         const orderIndex = cwOrders.value.findIndex(o => String(o.id) === String(orderId))
         if (orderIndex !== -1) {
           cwOrders.value[orderIndex].status = 'released'
@@ -925,7 +928,7 @@ onMounted(async () => {
         updateAdminPins()
       } catch (error) {
         console.error('Erro ao atribuir pedido.', error)
-        
+        alert('Erro ao atribuir pedido ao motoboy. Tente novamente.')
       }
     }
 
@@ -1680,17 +1683,14 @@ const updateAdminPins = async () => {
         const motoboyId = assignedInfo?.motoboyId
         
         let pinGradient = 'linear-gradient(135deg, #9ca3af 0%, #4b5563 100%)' // Padrão Cinza
-        let canAssign = false
+        let canAssign = true // Permite atribuir qualquer pedido ativo que ainda não tenha motoboy
         
         if (order.status === 'confirmed') {
           pinGradient = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' // Azul
-          canAssign = true
         } else if (order.status === 'ready') {
           pinGradient = 'linear-gradient(135deg, #10b981 0%, #059669 100%)' // Verde
-          canAssign = true
         } else if (order.status === 'released' || order.status === 'dispatched') {
           pinGradient = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' // Laranja
-          canAssign = false
         }
         
         const pinStyle = `background: ${pinGradient};`
