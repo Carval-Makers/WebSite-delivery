@@ -46,7 +46,7 @@
       @click="toggleReturnedPanel"
       title="Pedidos Devolvidos"
     >
-      <span class="material-icons" style="font-size: 20px;">assignment_return</span>
+      ↩️ Devolvidos
       <span v-if="returnedOrders.length > 0" class="badge-count" style="background: red; color: white; padding: 2px 6px; border-radius: 12px; font-size: 12px; position: absolute; top: -5px; right: -5px;">{{ returnedOrders.length }}</span>
     </button>
 
