@@ -1,7 +1,7 @@
 <template>
   <div class="loading-container">
     <div class="loader"></div>
-    <p>Redirecionando...</p>
+    <p class="loading-text">Redirecionando...</p>
   </div>
 </template>
 
@@ -12,7 +12,6 @@ import { useRouter } from 'vue-router'
 const router = useRouter()
 
 onMounted(() => {
-  // Redireciona imediatamente para a tela de login
   router.push('/login')
 })
 </script>
@@ -28,16 +27,8 @@ onMounted(() => {
   background-color: var(--color-bg);
 }
 
-.loader {
-  width: 40px;
-  height: 40px;
-  border: 3px solid rgba(255, 255, 255, 0.1);
-  border-radius: 50%;
-  border-top-color: var(--color-primary);
-  animation: spin 1s ease-in-out infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.loading-text {
+  color: var(--color-text-secondary);
+  font-size: 14px;
 }
 </style>

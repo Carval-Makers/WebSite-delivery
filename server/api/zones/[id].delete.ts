@@ -4,7 +4,7 @@ export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')
   
   if (!id) {
-    return createError({ statusCode: 400, statusMessage: 'ID é obrigatório' })
+    throw createError({ statusCode: 400, statusMessage: 'ID é obrigatório' })
   }
 
   try {
@@ -13,6 +13,7 @@ export default defineEventHandler(async (event) => {
     if (error) throw error
     return { success: true }
   } catch (error: any) {
-    return createError({ statusCode: 500, statusMessage: error.message })
+    if (error.statusCode) throw error
+    throw createError({ statusCode: 500, statusMessage: error.message })
   }
 })

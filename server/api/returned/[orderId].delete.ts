@@ -1,7 +1,7 @@
 import { getSupabase } from '../../utils/supabase'
 
 export default defineEventHandler(async (event) => {
-  const orderId = event.context.params?.orderId
+  const orderId = getRouterParam(event, 'orderId')
 
   if (!orderId) {
     throw createError({ statusCode: 400, statusMessage: 'orderId ausente' })

@@ -65,7 +65,7 @@
       class="fab-motoboy-parar btn-danger"
       @click="triggerStopRoute"
     >
-      🛑 Parar Rota
+      <i class="ph ph-stop-circle" style="font-size: 1.2em; margin-right: 6px;"></i> Parar Rota
     </button>
 
     <!-- Indicador de Tela Sempre Ativa para o Motoboy -->
@@ -77,7 +77,7 @@
       title="Status da tela: clique para garantir que a tela fique ligada"
     >
       <span class="wakelock-dot"></span>
-      <span v-if="isWakeLockActive">💡 Tela Sempre Ativa</span>
+      <span v-if="isWakeLockActive"><i class="ph ph-device-mobile" style="font-size: 1.2em; margin-right: 6px;"></i> Tela Sempre Ativa</span>
       <span v-else><i class="ph ph-warning-circle" style="font-size: 1.2em;"></i> Toque p/ Manter Ligada</span>
     </button>
 
@@ -88,7 +88,7 @@
       style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);"
       @click="calculateBestRoute"
     >
-      ⭐ Melhor Rota
+      <i class="ph ph-path" style="font-size: 1.2em; margin-right: 6px;"></i> Melhor Rota
     </button>
 
 
@@ -112,10 +112,10 @@
           </select>
           
           <button class="btn-primary" style="width: 100%; padding: 12px; margin-bottom: 10px;" @click="assignDemo">
-            🚀 Iniciar Simulação
+            <i class="ph ph-play" style="font-size: 1.2em; margin-right: 6px;"></i> Iniciar Simulação
           </button>
           <button class="btn-danger" style="width: 100%; padding: 12px;" @click="unassignDemo">
-            🛑 Cancelar Simulação
+            <i class="ph ph-x-circle" style="font-size: 1.2em; margin-right: 6px;"></i> Cancelar Simulação
           </button>
         </div>
       </div>
@@ -150,9 +150,7 @@
               <span class="delivery-name">{{ boy.name }}</span>
               <span class="delivery-login">@{{ boy.login }}</span>
             </div>
-            <button class="btn-icon btn-delete" @click="deleteDelivery(boy.id)" title="Deletar">
-              ➖
-            </button>
+            <button class="btn-icon btn-delete" @click="deleteDelivery(boy.id)" title="Deletar"><i class="ph ph-trash" style="font-size: 1.1em; color: #ef4444;"></i></button>
           </div>
           
           <div v-if="motoboys.length === 0" class="empty-state">
@@ -168,17 +166,50 @@
 
     <!-- Painel de Devolvidos -->
     <div v-if="isReturnedPanelOpen" class="panel-overlay">
-      <div class="glass-panel delivery-panel">
+      <div class="glass-panel delivery-panel" style="max-height: 520px; width: 340px;">
         <div class="panel-header">
-          <h2>Pedidos Devolvidos</h2>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <i class="ph ph-arrow-u-up-left" style="color: var(--color-secondary); font-size: 1.3em;"></i>
+            <h2>Pedidos Devolvidos</h2>
+          </div>
           <button class="btn-icon" @click="toggleReturnedPanel" title="Fechar"><i class="ph ph-x" style="font-size: 1.2em;"></i></button>
         </div>
-        <div class="motoboy-list" style="margin-top: 10px;">
-          <div v-if="returnedOrders.length === 0" class="empty-state">Nenhum pedido devolvido no momento.</div>
-          <div v-for="ro in returnedOrders" :key="ro.order_id" class="motoboy-card" style="border-left: 4px solid #f59e0b; padding: 10px; margin-bottom: 10px; background: rgba(255,255,255,0.8); border-radius: 8px;">
-            <div class="motoboy-info">
-              <span class="motoboy-name" style="font-weight: bold;">Pedido #{{ ro.order_id }}</span>
-              <span class="motoboy-status" style="color: #f59e0b; font-size: 12px;">Devolvido por: {{ ro.motoboy_name }}</span>
+        <p style="font-size: 13px; color: var(--color-text-secondary); margin-bottom: 12px;">
+          Pedidos devolvidos à base. Selecione um entregador para sair para entrega novamente.
+        </p>
+        <div class="motoboy-list" style="overflow-y: auto; max-height: 380px;">
+          <div v-if="returnedOrders.length === 0" class="empty-state">
+            Nenhum pedido devolvido no momento.
+          </div>
+          <div 
+            v-for="ro in returnedOrders" 
+            :key="ro.order_id" 
+            class="list-item-card" 
+            style="flex-direction: column; align-items: stretch; border-left: 3px solid var(--color-secondary); margin-bottom: 10px; gap: 8px;"
+          >
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-weight: 700; font-size: 14px;">Pedido #{{ ro.order_id }}</span>
+              <span style="font-size: 11px; color: var(--color-secondary); background: rgba(245, 158, 11, 0.15); padding: 2px 6px; border-radius: 4px; font-weight: 600;">Devolvido</span>
+            </div>
+            <div style="font-size: 12px; color: var(--color-text-secondary);">
+              Devolvido por: <strong style="color: var(--color-text-primary);">{{ ro.motoboy_name }}</strong>
+            </div>
+            
+            <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px;">
+              <select v-model="selectedReassign[ro.order_id]" class="form-input" style="padding: 6px 10px; font-size: 13px;">
+                <option value="">-- Reatribuir Entregador --</option>
+                <option v-for="boy in motoboys" :key="boy.id" :value="boy.id">
+                  {{ boy.name }}
+                </option>
+              </select>
+              <button 
+                class="btn-primary" 
+                style="padding: 8px 12px; font-size: 13px; width: 100%; border-radius: var(--border-radius-sm);" 
+                :disabled="!selectedReassign[ro.order_id] || isReassigning"
+                @click="reassignReturnedOrder(ro.order_id, selectedReassign[ro.order_id])"
+              >
+                <i class="ph ph-motorcycle"></i> Enviar p/ Nova Entrega
+              </button>
             </div>
           </div>
         </div>
@@ -193,12 +224,12 @@
         
         <div class="input-group">
           <label>Nome da Região</label>
-          <input type="text" v-model="newZone.name" placeholder="Ex: Centro" class="app-input" style="width: 100%; margin-top: 4px;" />
+          <input type="text" v-model="newZone.name" placeholder="Ex: Centro" class="form-input" style="width: 100%; margin-top: 4px;" />
         </div>
         
         <div class="input-group" style="margin-top: 15px;">
           <label>Taxa de Entrega (R$)</label>
-          <input type="number" v-model="newZone.price" placeholder="Ex: 5.00" step="0.5" class="app-input" style="width: 100%; margin-top: 4px;" />
+          <input type="number" v-model="newZone.price" placeholder="Ex: 5.00" step="0.5" class="form-input" style="width: 100%; margin-top: 4px;" />
         </div>
 
         <div style="display: flex; gap: 10px; margin-top: 25px;">
@@ -214,9 +245,9 @@
         <div class="confirm-modal-header">
           <div class="confirm-modal-title">
             <span class="confirm-modal-icon">
-              <template v-if="detectedChannel === 'ifood'">🛵</template>
+              <template v-if="detectedChannel === 'ifood'"><i class="ph ph-moped" style="font-size: 1.3em; color: #ea1d2c;"></i></template>
               <template v-else-if="detectedChannel === '99food'"><i class="ph ph-storefront" style="font-size: 1.2em;"></i></template>
-              <template v-else>📦</template>
+              <template v-else><i class="ph ph-package" style="font-size: 1.3em; color: #10b981;"></i></template>
             </span>
             <div>
               <div class="confirm-title-row">
@@ -254,7 +285,7 @@
             @click="handleConfirmPlatform('ifood')"
           >
             <div class="platform-btn-left">
-              <span class="platform-logo">🛵</span>
+              <span class="platform-logo"><i class="ph ph-moped"></i></span>
               <div class="platform-text">
                 <strong>Confirmar no iFood</strong>
                 <small>Abrir link de confirmação do iFood</small>
@@ -309,7 +340,7 @@
                 <small>Devolver para a Loja</small>
               </div>
             </div>
-            <span class="platform-arrow">↩</span>
+            <span class="platform-arrow"><i class="ph ph-arrow-u-up-left"></i></span>
           </button>
         </div>
 
@@ -319,7 +350,7 @@
           class="btn-toggle-channel"
           @click="showOtherChannels = true"
         >
-          🔄 Não é {{ channelLabel }}? Ver outras opções
+          <i class="ph ph-arrows-clockwise" style="margin-right: 4px;"></i> Não é {{ channelLabel }}? Ver outras opções
         </button>
 
         <button class="btn-cancel-modal" @click="closeConfirmModal">
@@ -608,6 +639,8 @@ const addError = ref('')
 const newDelivery = ref({ name: '', login: '', password: '' })
 const motoboys = ref([])
 const returnedOrders = ref([])
+const selectedReassign = ref({})
+const isReassigning = ref(false)
 const cwOrders = ref([])
 const isLoading = ref(false)
 
@@ -1306,7 +1339,7 @@ const startDeliveryTracking = () => {
       })
 
       const orderIcon = L.divIcon({
-        html: `<div class="order-pin-icon" style="background: #3b82f6;">📦</div>`, // Azul pro motoboy ver a caixa dele
+        html: `<div class="order-pin-icon" style="background: #3b82f6;"><i class="ph ph-package"></i></div>`, // Azul pro motoboy ver a caixa dele
         className: 'custom-moto-icon', iconSize: [40, 40], iconAnchor: [20, 20], popupAnchor: [0, -20]
       })
 
@@ -1330,7 +1363,7 @@ const startDeliveryTracking = () => {
 
           if (channel === 'ifood') {
             channelBadge = '<span style="background:#ea1d2c; color:white; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:bold; margin-left:6px;">iFood</span>'
-            confirmBtnText = '🛵 Confirmar iFood'
+            confirmBtnText = '<i class="ph ph-moped"></i> Confirmar iFood'
             confirmBtnBg = 'linear-gradient(135deg, #ea1d2c 0%, #b9101d 100%)'
           } else if (channel === '99food') {
             channelBadge = '<span style="background:#ff8c00; color:white; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:bold; margin-left:6px;">99Food</span>'
@@ -1550,9 +1583,9 @@ const updateAdminPins = async () => {
         if (order.created_at) {
           const diffMins = Math.floor((new Date() - new Date(order.created_at)) / 60000)
           if (diffMins > 45) {
-            timeInfo = `<br><span style="color: #ef4444; font-weight: bold;">⏱️ Atrasado: ${diffMins} min</span>`
+            timeInfo = `<br><span style="color: #ef4444; font-weight: bold;"><i class="ph ph-clock"></i> Atrasado: ${diffMins} min</span>`
           } else {
-            timeInfo = `<br><span style="color: #6b7280;">⏱️ Feito há ${diffMins} min</span>`
+            timeInfo = `<br><span style="color: #6b7280;"><i class="ph ph-clock"></i> Feito há ${diffMins} min</span>`
           }
         }
 
@@ -1603,6 +1636,38 @@ const updateAdminPins = async () => {
     })
   } catch (error) {
     console.error('Erro ao atualizar pinos', error)
+  }
+}
+
+
+const reassignReturnedOrder = async (orderId, motoboyId) => {
+  if (!motoboyId) return
+  isReassigning.value = true
+  const boy = motoboys.value.find(b => String(b.id) === String(motoboyId))
+  const motoboyName = boy ? boy.name : 'Motoboy'
+
+  try {
+    await $fetch('/api/assign', {
+      method: 'POST',
+      body: { orderId, motoboyId: Number(motoboyId), motoboyName }
+    })
+
+    if (orderId !== 'DEMO_TUTORIAL') {
+      $fetch(`/api/cw/api/partner/v1/orders/${orderId}/dispatch`, { method: 'POST' })
+        .catch(() => {
+          return $fetch(`/api/cw/api/partner/v1/orders/${orderId}/prepared`, { method: 'POST' })
+            .then(() => $fetch(`/api/cw/api/partner/v1/orders/${orderId}/dispatch`, { method: 'POST' }))
+            .catch((err2) => console.error('Erro ao despachar no Cardápio Web:', err2))
+        })
+    }
+
+    delete selectedReassign.value[orderId]
+    await fetchReturnedOrders()
+    await fetchCwOrders()
+  } catch (error) {
+    console.error('Erro ao reatribuir pedido devolvido:', error)
+  } finally {
+    isReassigning.value = false
   }
 }
 
@@ -1901,45 +1966,11 @@ const triggerStopRoute = () => {
   gap: 12px;
   margin-bottom: 20px;
 }
-.form-input {
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-primary);
-  padding: 12px 14px;
-  border-radius: var(--border-radius-sm);
-  outline: none;
-  font-family: var(--font-family);
-  transition: var(--transition);
-}
-.form-input:focus { border-color: var(--color-primary); box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2); }
+/* .form-input herdado do main.css */
 .btn-small { padding: 10px; font-size: 14px; }
 .error-text { color: var(--color-error); font-size: 13px; margin: 0; text-align: center; }
 
-/* Globais e Botoes compartilhados */
-/* Globais e Botoes compartilhados */
-.btn-primary, .btn-secondary, .btn-danger {
-  padding: 10px 16px;
-  border-radius: var(--border-radius-sm);
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  transition: var(--transition);
-  color: #fff;
-  border: 1px solid transparent;
-}
-
-.btn-primary { background: var(--color-primary); box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
-.btn-primary:hover:not(:disabled) { background: var(--color-primary-hover); transform: translateY(-1px); box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4); }
-
-.btn-secondary { background: var(--color-surface-hover); border-color: var(--color-border); }
-.btn-secondary:hover:not(:disabled) { background: #3f3f46; transform: translateY(-1px); }
-
-.btn-danger { background: var(--color-danger); }
-.btn-danger:hover:not(:disabled) { background: var(--color-danger-hover); transform: translateY(-1px); }
-
-.btn-primary:disabled, .btn-secondary:disabled, .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+/* Botoes compartilhados herdados do main.css */
 
 /* Customização de Ícones no Mapa */
 :deep(.custom-moto-icon) {

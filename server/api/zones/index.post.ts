@@ -6,7 +6,7 @@ export default defineEventHandler(async (event) => {
     const { name, price, polygon_points } = body
 
     if (!name || price === undefined || !polygon_points) {
-      return createError({ statusCode: 400, statusMessage: 'Faltando campos obrigatórios' })
+      throw createError({ statusCode: 400, statusMessage: 'Faltando campos obrigatórios' })
     }
 
     const supabase = getSupabase()
@@ -18,6 +18,7 @@ export default defineEventHandler(async (event) => {
     if (error) throw error
     return { data: data[0] }
   } catch (error: any) {
-    return createError({ statusCode: 500, statusMessage: error.message })
+    if (error.statusCode) throw error
+    throw createError({ statusCode: 500, statusMessage: error.message })
   }
 })
