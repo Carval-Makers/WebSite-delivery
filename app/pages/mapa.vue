@@ -614,7 +614,7 @@ const handleConfirmPlatform = async (platform) => {
   // 1. Abertura do link síncrona com o clique do usuário para o navegador mobile não bloquear o pop-up
   if (platform === 'ifood') {
     if (import.meta.client) {
-      window.open('https://confirmacao-entrega-propria.ifood.com.br', '_blank')
+      window.open('https://confirmacao-entrega-propria.ifood.com.br/', '_blank')
     }
   } else if (platform === '99food') {
     if (import.meta.client) {
@@ -1013,9 +1013,22 @@ onMounted(async () => {
     window.adminCompleteDelivery = async (orderId, targetMotoboyId, targetMotoboyName) => {
       const order = cwOrders.value.find(o => String(o.id) === String(orderId))
       const orderNum = order ? getOrderNumber(order) : orderId
+      const channel = getOrderChannel(order)
+      const channelName = channel === 'ifood' ? 'iFood' : (channel === '99food' ? '99Food' : 'Cardápio Web')
       
-      if (!confirm(`Deseja realmente concluir a entrega #${orderNum} para o motoboy ${targetMotoboyName}?\n\nO motoboy receberá o valor da taxa e a entrega será computada normalmente no relatório dele.`)) {
+      if (!confirm(`Deseja realmente confirmar a entrega #${orderNum} (${channelName}) para o motoboy ${targetMotoboyName}?\n\nO motoboy receberá o valor da taxa e a entrega será computada normalmente no relatório dele.`)) {
         return
+      }
+
+      // Abre link de validação da plataforma se for 99Food ou iFood
+      if (channel === '99food') {
+        if (import.meta.client) {
+          window.open('https://food-b-h5.99app.com/pt-BR/v2/confirmation-entrega', '_blank')
+        }
+      } else if (channel === 'ifood') {
+        if (import.meta.client) {
+          window.open('https://confirmacao-entrega-propria.ifood.com.br/', '_blank')
+        }
       }
 
       try {
@@ -1056,10 +1069,10 @@ onMounted(async () => {
         // 6. Atualiza os pinos de pedidos do admin
         updateAdminPins()
 
-        alert(`Entrega #${orderNum} concluída com sucesso!\nTaxa de R$ ${fee.toFixed(2)} computada para ${targetMotoboyName}.`)
+        alert(`Entrega #${orderNum} confirmada com sucesso!\nTaxa de R$ ${fee.toFixed(2)} computada para ${targetMotoboyName}.`)
       } catch (error) {
-        console.error('Erro ao concluir entrega pelo admin:', error)
-        alert('Erro ao concluir entrega. Verifique o console ou tente novamente.')
+        console.error('Erro ao confirmar entrega pelo admin:', error)
+        alert('Erro ao confirmar entrega. Verifique o console ou tente novamente.')
       }
     }
 
@@ -1791,10 +1804,17 @@ const updateAdminPins = async () => {
 
         const channel = getOrderChannel(order)
         let channelTag = ''
+        let confirmBtnBg = 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+        let confirmBtnLabel = 'Confirmar Entrega'
+
         if (channel === 'ifood') {
           channelTag = ' <span style="background:#ea1d2c; color:white; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:bold;">iFood</span>'
+          confirmBtnBg = 'linear-gradient(135deg, #ea1d2c 0%, #b9101d 100%)'
+          confirmBtnLabel = 'Confirmar Entrega iFood'
         } else if (channel === '99food') {
           channelTag = ' <span style="background:#ff8c00; color:white; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:bold;">99Food</span>'
+          confirmBtnBg = 'linear-gradient(135deg, #ff8c00 0%, #d97706 100%)'
+          confirmBtnLabel = 'Confirmar Entrega 99Food'
         }
 
         // Constrói o HTML do Popup
@@ -1807,8 +1827,8 @@ const updateAdminPins = async () => {
                 <i class="ph ph-motorcycle" style="font-size: 1.2em; margin-right: 4px;"></i> Entregador: ${motoboyName}
               </span>
               <button onclick="window.adminCompleteDelivery('${orderIdStr}', '${motoboyId}', '${motoboyName}')" 
-                style="width: 100%; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; padding: 7px 10px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
-                <i class="ph ph-check-circle" style="font-size: 1.2em;"></i> Concluir Entrega (${motoboyName})
+                style="width: 100%; background: ${confirmBtnBg}; color: white; border: none; padding: 7px 10px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                <i class="ph ph-check-circle" style="font-size: 1.2em;"></i> ${confirmBtnLabel} (${motoboyName})
               </button>
               <button onclick="window.unassignOrder('${orderIdStr}')" 
                 style="width: 100%; background: rgba(239, 68, 68, 0.15); color: #f87171; border: none; padding: 4px; border-radius: 4px; cursor: pointer; font-size: 12px;">
@@ -1820,7 +1840,7 @@ const updateAdminPins = async () => {
           // Select Box para o Admin escolher
           let optionsHtml = '<option value="">-- Escolha um Motoboy --</option>'
           motoboys.value.forEach(m => {
-            optionsHtml += `<option value="${m.id}">${m.name}</option>`
+            optionsHtml += `<option value="${m.id}">${m.login || m.name}</option>`
           })
           
           popupHtml += `
@@ -1834,8 +1854,8 @@ const updateAdminPins = async () => {
                     Atribuir ao Motoboy
                   </button>
                 ` : ''}
-                <button onclick="window.adminCompleteWithSelected('${orderIdStr}')" style="width: 100%; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; padding: 6px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
-                  <i class="ph ph-check-circle" style="font-size: 1.2em;"></i> Concluir Entrega
+                <button onclick="window.adminCompleteWithSelected('${orderIdStr}')" style="width: 100%; background: ${confirmBtnBg}; color: white; border: none; padding: 6px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                  <i class="ph ph-check-circle" style="font-size: 1.2em;"></i> ${confirmBtnLabel}
                 </button>
               </div>
             </div>
