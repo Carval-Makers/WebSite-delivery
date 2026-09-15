@@ -126,20 +126,27 @@
       <div class="glass-panel delivery-panel">
         <div class="panel-header">
           <h2>Motoboys</h2>
-          <button class="btn-icon" @click="toggleAddForm" title="Registrar novo motoboy">
+          <button class="btn-icon" @click="toggleAddForm" :title="showAddForm ? 'Fechar formulário' : 'Registrar novo motoboy'">
             <span v-if="!showAddForm"><i class="ph ph-plus" style="font-size: 1.2em;"></i></span>
             <span v-else><i class="ph ph-x" style="font-size: 1.2em;"></i></span>
           </button>
         </div>
 
-        <!-- Formulário de Adição -->
+        <!-- Formulário de Adição / Edição -->
         <div v-if="showAddForm" class="add-form">
-          <input type="text" v-model="newDelivery.name" placeholder="Nome" class="form-input" />
+          <div v-if="editingMotoboyId" style="font-size: 13px; font-weight: 600; color: var(--color-primary); margin-bottom: -4px;">
+            Editar Motoboy
+          </div>
           <input type="text" v-model="newDelivery.login" placeholder="Login" class="form-input" />
-          <input type="password" v-model="newDelivery.password" placeholder="Senha" class="form-input" />
-          <button class="btn-primary btn-small" @click="addDelivery" :disabled="isSaving">
-            {{ isSaving ? 'Salvando...' : 'Salvar' }}
-          </button>
+          <input type="password" v-model="newDelivery.password" :placeholder="editingMotoboyId ? 'Nova senha (deixe vazio p/ manter)' : 'Senha'" class="form-input" />
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-primary btn-small" style="flex: 1;" @click="saveDelivery" :disabled="isSaving">
+              {{ isSaving ? 'Salvando...' : (editingMotoboyId ? 'Atualizar' : 'Salvar') }}
+            </button>
+            <button v-if="editingMotoboyId" class="btn-secondary btn-small" type="button" @click="cancelEdit">
+              Cancelar
+            </button>
+          </div>
           <p v-if="addError" class="error-text">{{ addError }}</p>
         </div>
 
@@ -147,10 +154,12 @@
         <div class="delivery-list" v-if="!isLoading">
           <div v-for="boy in motoboys" :key="boy.id" class="delivery-item">
             <div class="delivery-info">
-              <span class="delivery-name">{{ boy.name }}</span>
-              <span class="delivery-login">@{{ boy.login }}</span>
+              <span class="delivery-name">{{ boy.login || boy.name }}</span>
             </div>
-            <button class="btn-icon btn-delete" @click="deleteDelivery(boy.id)" title="Deletar"><i class="ph ph-trash" style="font-size: 1.1em; color: #ef4444;"></i></button>
+            <div class="delivery-actions">
+              <button class="btn-icon btn-edit" @click="startEdit(boy)" title="Editar"><i class="ph ph-pencil-simple" style="font-size: 1.1em; color: #38bdf8;"></i></button>
+              <button class="btn-icon btn-delete" @click="deleteDelivery(boy.id)" title="Deletar"><i class="ph ph-trash" style="font-size: 1.1em; color: #ef4444;"></i></button>
+            </div>
           </div>
           
           <div v-if="motoboys.length === 0" class="empty-state">
@@ -653,9 +662,10 @@ const isReturnedPanelOpen = ref(false)
 const isDemoPanelOpen = ref(false)
 const selectedDemoMotoboy = ref('')
 const showAddForm = ref(false)
+const editingMotoboyId = ref(null)
 const isSaving = ref(false)
 const addError = ref('')
-const newDelivery = ref({ name: '', login: '', password: '' })
+const newDelivery = ref({ login: '', password: '' })
 const motoboys = ref([])
 const returnedOrders = ref([])
 const selectedReassign = ref({})
@@ -2004,32 +2014,70 @@ const fetchMotoboys = async () => {
 }
 
 const toggleAddForm = () => {
-  showAddForm.value = !showAddForm.value
-  addError.value = ''
-  newDelivery.value = { name: '', login: '', password: '' }
+  if (showAddForm.value) {
+    cancelEdit()
+  } else {
+    editingMotoboyId.value = null
+    newDelivery.value = { login: '', password: '' }
+    addError.value = ''
+    showAddForm.value = true
+  }
 }
 
-const addDelivery = async () => {
-  if (!newDelivery.value.name || !newDelivery.value.login || !newDelivery.value.password) {
-    addError.value = 'Preencha todos os campos.'
-    return
+const startEdit = (boy) => {
+  editingMotoboyId.value = boy.id
+  newDelivery.value = {
+    login: boy.login || '',
+    password: ''
+  }
+  addError.value = ''
+  showAddForm.value = true
+}
+
+const cancelEdit = () => {
+  editingMotoboyId.value = null
+  newDelivery.value = { login: '', password: '' }
+  addError.value = ''
+  showAddForm.value = false
+}
+
+const saveDelivery = async () => {
+  if (editingMotoboyId.value) {
+    if (!newDelivery.value.login) {
+      addError.value = 'Preencha o login.'
+      return
+    }
+  } else {
+    if (!newDelivery.value.login || !newDelivery.value.password) {
+      addError.value = 'Preencha login e senha.'
+      return
+    }
   }
   
   isSaving.value = true
   addError.value = ''
   try {
-    await $fetch('/api/delivery', {
-      method: 'POST',
-      body: newDelivery.value
-    })
-    toggleAddForm()
+    if (editingMotoboyId.value) {
+      await $fetch(`/api/delivery/${editingMotoboyId.value}`, {
+        method: 'PUT',
+        body: newDelivery.value
+      })
+    } else {
+      await $fetch('/api/delivery', {
+        method: 'POST',
+        body: newDelivery.value
+      })
+    }
+    cancelEdit()
     await fetchMotoboys() // Recarrega a lista
   } catch (error) {
-    addError.value = error.data?.statusMessage || 'Erro ao cadastrar.'
+    addError.value = error.data?.statusMessage || 'Erro ao salvar motoboy.'
   } finally {
     isSaving.value = false
   }
 }
+
+const addDelivery = saveDelivery
 
 const deleteDelivery = async (id) => {
   if (!confirm('Tem certeza que deseja remover este motoboy?')) return
@@ -2038,7 +2086,7 @@ const deleteDelivery = async (id) => {
     await $fetch(`/api/delivery/${id}`, { method: 'DELETE' })
     await fetchMotoboys() // Recarrega a lista
   } catch (error) {
-    
+    console.error('Erro ao remover motoboy:', error)
   }
 }
 
@@ -2180,6 +2228,9 @@ const triggerStopRoute = () => {
 .delivery-info { display: flex; flex-direction: column; }
 .delivery-name { font-weight: 600; font-size: 15px; }
 .delivery-login { font-size: 13px; color: var(--color-text-secondary); }
+.delivery-actions { display: flex; align-items: center; gap: 8px; }
+.btn-edit { background: rgba(56, 189, 248, 0.15); }
+.btn-edit:hover { background: rgba(56, 189, 248, 0.3); }
 .btn-delete { background: rgba(239, 68, 68, 0.15); }
 .btn-delete:hover { background: rgba(239, 68, 68, 0.3); }
 
