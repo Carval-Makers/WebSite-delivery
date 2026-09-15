@@ -130,14 +130,23 @@
       </div>
     </div>
 
-    <!-- Modal de Confirmação de Entrega (iFood / 99Food / Direto) -->
+    <!-- Modal de Confirmação de Entrega Inteligente por Canal (iFood / 99Food / Direto) -->
     <div v-if="showConfirmModal" class="confirm-modal-overlay" @click.self="closeConfirmModal">
       <div class="glass-panel confirm-modal-card">
         <div class="confirm-modal-header">
           <div class="confirm-modal-title">
-            <span class="confirm-modal-icon">📦</span>
+            <span class="confirm-modal-icon">
+              <template v-if="detectedChannel === 'ifood'">🛵</template>
+              <template v-else-if="detectedChannel === '99food'">🍔</template>
+              <template v-else>📦</template>
+            </span>
             <div>
-              <h3>Confirmar Entrega</h3>
+              <div class="confirm-title-row">
+                <h3>Confirmar Entrega</h3>
+                <span :class="['channel-badge', `badge-${detectedChannel}`]">
+                  {{ channelLabel }}
+                </span>
+              </div>
               <p class="confirm-modal-subtitle">{{ pendingOrderInfo }}</p>
             </div>
           </div>
@@ -145,12 +154,24 @@
         </div>
 
         <p class="confirm-modal-desc">
-          Selecione a plataforma para validar o código de entrega com o cliente:
+          <template v-if="detectedChannel === 'ifood' && !showOtherChannels">
+            Pedido identificado como <strong>iFood</strong>. Ao confirmar, abriremos a tela oficial de validação do código do cliente.
+          </template>
+          <template v-else-if="detectedChannel === '99food' && !showOtherChannels">
+            Pedido identificado como <strong>99Food</strong>. Ao confirmar, abriremos a tela oficial de validação do código do cliente.
+          </template>
+          <template v-else-if="detectedChannel === 'direct' && !showOtherChannels">
+            Pedido próprio <strong>Cardápio Web</strong>. Clique abaixo para confirmar e finalizar a entrega no aplicativo.
+          </template>
+          <template v-else>
+            Selecione a plataforma para validar o código de entrega com o cliente:
+          </template>
         </p>
 
         <div class="confirm-actions">
-          <!-- Opção iFood -->
+          <!-- Opção iFood: aparece se for canal ifood, ou modo demo, ou se o motoboy clicou em alterar canal -->
           <button 
+            v-if="detectedChannel === 'ifood' || detectedChannel === 'all' || showOtherChannels"
             class="platform-btn ifood-btn"
             @click="handleConfirmPlatform('ifood')"
           >
@@ -164,8 +185,9 @@
             <span class="platform-arrow">↗</span>
           </button>
 
-          <!-- Opção 99Food -->
+          <!-- Opção 99Food: aparece se for canal 99food, ou modo demo, ou se o motoboy clicou em alterar canal -->
           <button 
+            v-if="detectedChannel === '99food' || detectedChannel === 'all' || showOtherChannels"
             class="platform-btn ninenine-btn"
             @click="handleConfirmPlatform('99food')"
           >
@@ -179,21 +201,32 @@
             <span class="platform-arrow">↗</span>
           </button>
 
-          <!-- Opção Direto / Cardápio Web -->
+          <!-- Opção Direto / Cardápio Web: aparece se for direto, ou modo demo, ou se o motoboy clicou em alterar canal -->
           <button 
+            v-if="detectedChannel === 'direct' || detectedChannel === 'all' || showOtherChannels"
             class="platform-btn direct-btn"
+            :class="{ 'direct-highlight': detectedChannel === 'direct' && !showOtherChannels }"
             @click="handleConfirmPlatform('direct')"
           >
             <div class="platform-btn-left">
               <span class="platform-logo">✅</span>
               <div class="platform-text">
                 <strong>Concluir Entrega Direta</strong>
-                <small>Finalizar no app sem abrir link externo</small>
+                <small>Finalizar no app sem link externo</small>
               </div>
             </div>
             <span class="platform-arrow">✔</span>
           </button>
         </div>
+
+        <!-- Opção de alternar canal caso a identificação automática precise de ajuste -->
+        <button 
+          v-if="detectedChannel !== 'all' && !showOtherChannels"
+          class="btn-toggle-channel"
+          @click="showOtherChannels = true"
+        >
+          🔄 Não é {{ channelLabel }}? Ver outras opções
+        </button>
 
         <button class="btn-cancel-modal" @click="closeConfirmModal">
           Cancelar
@@ -218,6 +251,63 @@ let L = null
 // --- ESTADO DO MODAL DE CONFIRMAÇÃO ---
 const showConfirmModal = ref(false)
 const pendingOrder = ref(null)
+const showOtherChannels = ref(false)
+
+const getOrderChannel = (order) => {
+  if (!order) return 'direct'
+  if (order.id === 'DEMO_TUTORIAL') {
+    return order.channel || 'all'
+  }
+
+  const salesChannel = String(order.sales_channel || '').toLowerCase()
+  const deliveredBy = String(order.delivered_by || '').toLowerCase()
+  const channel = String(order.channel || '').toLowerCase()
+  const origin = String(order.origin || order.source || order.customer_origin || '').toLowerCase()
+  const extName = String(order.external_merchant_name || '').toLowerCase()
+  const obs = String(order.observation || '').toLowerCase()
+
+  // Checagem iFood
+  if (
+    salesChannel === 'ifood' ||
+    channel === 'ifood' ||
+    deliveredBy.includes('ifood') ||
+    origin.includes('ifood') ||
+    extName.includes('ifood') ||
+    obs.includes('ifood')
+  ) {
+    return 'ifood'
+  }
+
+  // Checagem 99Food
+  if (
+    salesChannel.includes('99') ||
+    salesChannel.includes('food99') ||
+    channel.includes('99') ||
+    channel.includes('food99') ||
+    deliveredBy.includes('99') ||
+    deliveredBy.includes('food99') ||
+    origin.includes('99') ||
+    extName.includes('99') ||
+    obs.includes('99food') ||
+    obs.includes('99 food')
+  ) {
+    return '99food'
+  }
+
+  return 'direct'
+}
+
+const detectedChannel = computed(() => {
+  if (!pendingOrder.value) return 'direct'
+  return getOrderChannel(pendingOrder.value)
+})
+
+const channelLabel = computed(() => {
+  if (detectedChannel.value === 'ifood') return 'iFood'
+  if (detectedChannel.value === '99food') return '99Food'
+  if (detectedChannel.value === 'all') return 'Demonstrativo'
+  return 'Cardápio Web'
+})
 
 const pendingOrderInfo = computed(() => {
   if (!pendingOrder.value) return ''
@@ -229,6 +319,7 @@ const pendingOrderInfo = computed(() => {
 const closeConfirmModal = () => {
   showConfirmModal.value = false
   pendingOrder.value = null
+  showOtherChannels.value = false
 }
 
 const handleConfirmPlatform = async (platform) => {
@@ -703,6 +794,7 @@ if (import.meta.client) {
   window.confirmDelivery = (orderId) => {
     const order = cwOrders.value.find(o => String(o.id) === String(orderId))
     pendingOrder.value = order || { id: orderId }
+    showOtherChannels.value = false
     showConfirmModal.value = true
   }
 
@@ -813,8 +905,23 @@ const startDeliveryTracking = () => {
           }
           const isNear = distKm < 0.3 || order.id === 'DEMO_TUTORIAL' // até 300 metros ou modo demo
 
+          const channel = getOrderChannel(order)
+          let channelBadge = ''
+          let confirmBtnText = '✅ Confirmar Entrega'
+          let confirmBtnBg = 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+
+          if (channel === 'ifood') {
+            channelBadge = '<span style="background:#ea1d2c; color:white; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:bold; margin-left:6px;">iFood</span>'
+            confirmBtnText = '🛵 Confirmar iFood'
+            confirmBtnBg = 'linear-gradient(135deg, #ea1d2c 0%, #b9101d 100%)'
+          } else if (channel === '99food') {
+            channelBadge = '<span style="background:#ff8c00; color:white; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:bold; margin-left:6px;">99Food</span>'
+            confirmBtnText = '🍔 Confirmar 99Food'
+            confirmBtnBg = 'linear-gradient(135deg, #ff8c00 0%, #d97706 100%)'
+          }
+
           const orderNum = getOrderNumber(order)
-          let popupHtml = `<b>Sua Entrega #${orderNum}</b><br>${order.customer?.name || order.cliente || 'Cliente'}<br>Status: ${order.status}`
+          let popupHtml = `<b>Sua Entrega #${orderNum}</b>${channelBadge}<br>${order.customer?.name || order.cliente || 'Cliente'}<br>Status: ${order.status}`
           
           if (!isThisRouteActive) {
             popupHtml += `<br><button onclick="window.startRoute(${lat}, ${lng}, '${order.id}')" style="margin-top:10px; width:100%; background:#10b981; color:white; border:none; padding:6px; border-radius:4px; font-weight:bold; cursor:pointer;">📍 Iniciar GPS (Traçar Rota)</button>`
@@ -823,9 +930,9 @@ const startDeliveryTracking = () => {
           }
           
           if (isNear) {
-            popupHtml += `<hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 10px 0;"><button onclick="window.confirmDelivery('${order.id}')" style="width:100%; background:linear-gradient(135deg, #10b981 0%, #059669 100%); color:white; border:none; padding:10px; border-radius:6px; font-weight:bold; cursor:pointer; font-size: 14px; box-shadow:0 2px 8px rgba(16,185,129,0.3);">✅ Confirmar Entrega</button>`
+            popupHtml += `<hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 10px 0;"><button onclick="window.confirmDelivery('${order.id}')" style="width:100%; background:${confirmBtnBg}; color:white; border:none; padding:10px; border-radius:6px; font-weight:bold; cursor:pointer; font-size: 14px; box-shadow:0 2px 8px rgba(0,0,0,0.3);">${confirmBtnText}</button>`
           } else {
-            popupHtml += `<hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 10px 0;"><button onclick="window.confirmDelivery('${order.id}')" style="width:100%; background:rgba(59, 130, 246, 0.15); color:#60a5fa; border:1px solid rgba(59, 130, 246, 0.4); padding:8px; border-radius:6px; font-weight:600; cursor:pointer; font-size: 13px;">✅ Confirmar Entrega</button>`
+            popupHtml += `<hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 10px 0;"><button onclick="window.confirmDelivery('${order.id}')" style="width:100%; background:rgba(255,255,255,0.08); color:white; border:1px solid rgba(255,255,255,0.2); padding:8px; border-radius:6px; font-weight:600; cursor:pointer; font-size: 13px;">${confirmBtnText}</button>`
           }
           
           if (!orderMarkers[order.id]) {
@@ -1022,8 +1129,16 @@ const updateAdminPins = async () => {
           }
         }
 
+        const channel = getOrderChannel(order)
+        let channelTag = ''
+        if (channel === 'ifood') {
+          channelTag = ' <span style="background:#ea1d2c; color:white; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:bold;">iFood</span>'
+        } else if (channel === '99food') {
+          channelTag = ' <span style="background:#ff8c00; color:white; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:bold;">99Food</span>'
+        }
+
         // Constrói o HTML do Popup
-        let popupHtml = `<b>${order.customer?.name || order.cliente || 'Cliente'} #${orderNum}</b><br>Status: <strong>${order.status}</strong>${timeInfo}`
+        let popupHtml = `<b>${order.customer?.name || order.cliente || 'Cliente'} #${orderNum}</b>${channelTag}<br>Status: <strong>${order.status}</strong>${timeInfo}`
         
         if (isAssigned) {
           popupHtml += `<br><span style="color: #3b82f6; font-weight: bold;">🏍️ Entregador: ${motoboyName}</span>`
@@ -1547,5 +1662,71 @@ const triggerStopRoute = () => {
 .btn-cancel-modal:hover {
   background: rgba(255, 255, 255, 0.05);
   color: var(--color-text-primary);
+}
+
+.confirm-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.channel-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.badge-ifood {
+  background: rgba(234, 29, 44, 0.2);
+  color: #ff4d5a;
+  border: 1px solid rgba(234, 29, 44, 0.4);
+}
+
+.badge-99food {
+  background: rgba(255, 140, 0, 0.2);
+  color: #ffa033;
+  border: 1px solid rgba(255, 140, 0, 0.4);
+}
+
+.badge-direct {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.badge-all {
+  background: rgba(99, 102, 241, 0.2);
+  color: #818cf8;
+  border: 1px solid rgba(99, 102, 241, 0.4);
+}
+
+.direct-highlight {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  border: none !important;
+  box-shadow: 0 4px 15px rgba(16, 185, 129, 0.35);
+}
+.direct-highlight:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(16, 185, 129, 0.5);
+}
+
+.btn-toggle-channel {
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  padding: 4px;
+  cursor: pointer;
+  text-decoration: underline;
+  opacity: 0.8;
+  transition: var(--transition);
+  text-align: center;
+}
+.btn-toggle-channel:hover {
+  opacity: 1;
+  color: var(--color-primary);
 }
 </style>
