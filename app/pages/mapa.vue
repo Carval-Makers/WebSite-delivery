@@ -130,11 +130,82 @@
       </div>
     </div>
 
+    <!-- Modal de Confirmação de Entrega (iFood / 99Food / Direto) -->
+    <div v-if="showConfirmModal" class="confirm-modal-overlay" @click.self="closeConfirmModal">
+      <div class="glass-panel confirm-modal-card">
+        <div class="confirm-modal-header">
+          <div class="confirm-modal-title">
+            <span class="confirm-modal-icon">📦</span>
+            <div>
+              <h3>Confirmar Entrega</h3>
+              <p class="confirm-modal-subtitle">{{ pendingOrderInfo }}</p>
+            </div>
+          </div>
+          <button class="btn-icon" @click="closeConfirmModal" title="Fechar">❌</button>
+        </div>
+
+        <p class="confirm-modal-desc">
+          Selecione a plataforma para validar o código de entrega com o cliente:
+        </p>
+
+        <div class="confirm-actions">
+          <!-- Opção iFood -->
+          <button 
+            class="platform-btn ifood-btn"
+            @click="handleConfirmPlatform('ifood')"
+          >
+            <div class="platform-btn-left">
+              <span class="platform-logo">🛵</span>
+              <div class="platform-text">
+                <strong>Confirmar no iFood</strong>
+                <small>Abrir link de confirmação do iFood</small>
+              </div>
+            </div>
+            <span class="platform-arrow">↗</span>
+          </button>
+
+          <!-- Opção 99Food -->
+          <button 
+            class="platform-btn ninenine-btn"
+            @click="handleConfirmPlatform('99food')"
+          >
+            <div class="platform-btn-left">
+              <span class="platform-logo">🍔</span>
+              <div class="platform-text">
+                <strong>Confirmar no 99Food</strong>
+                <small>Abrir link de confirmação do 99Food</small>
+              </div>
+            </div>
+            <span class="platform-arrow">↗</span>
+          </button>
+
+          <!-- Opção Direto / Cardápio Web -->
+          <button 
+            class="platform-btn direct-btn"
+            @click="handleConfirmPlatform('direct')"
+          >
+            <div class="platform-btn-left">
+              <span class="platform-logo">✅</span>
+              <div class="platform-text">
+                <strong>Concluir Entrega Direta</strong>
+                <small>Finalizar no app sem abrir link externo</small>
+              </div>
+            </div>
+            <span class="platform-arrow">✔</span>
+          </button>
+        </div>
+
+        <button class="btn-cancel-modal" @click="closeConfirmModal">
+          Cancelar
+        </button>
+      </div>
+    </div>
+
   </div>
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 
 // --- ESTADO GERAL ---
 const userRole = ref('')
@@ -143,6 +214,84 @@ const userName = ref('')
 const isRouting = ref(false) // Estado para mostrar/esconder o botão de parar rota
 let map = null
 let L = null
+
+// --- ESTADO DO MODAL DE CONFIRMAÇÃO ---
+const showConfirmModal = ref(false)
+const pendingOrder = ref(null)
+
+const pendingOrderInfo = computed(() => {
+  if (!pendingOrder.value) return ''
+  const num = getOrderNumber(pendingOrder.value)
+  const client = pendingOrder.value.customer?.name || pendingOrder.value.cliente || 'Cliente'
+  return `Pedido #${num} • ${client}`
+})
+
+const closeConfirmModal = () => {
+  showConfirmModal.value = false
+  pendingOrder.value = null
+}
+
+const handleConfirmPlatform = async (platform) => {
+  const order = pendingOrder.value
+  const orderId = order?.id
+  if (!orderId) {
+    showConfirmModal.value = false
+    return
+  }
+
+  // 1. Abertura do link síncrona com o clique do usuário para o navegador mobile não bloquear o pop-up
+  if (platform === 'ifood') {
+    if (import.meta.client) {
+      window.open('https://confirmacao-entrega-propria.ifood.com.br', '_blank')
+    }
+  } else if (platform === '99food') {
+    if (import.meta.client) {
+      window.open('https://food-b-h5.99app.com/pt-BR/v2/confirmation-entrega', '_blank')
+    }
+  }
+
+  // 2. Fecha o modal
+  showConfirmModal.value = false
+  pendingOrder.value = null
+
+  // 3. Executa a finalização da entrega
+  await executeConfirmDelivery(orderId)
+}
+
+const executeConfirmDelivery = async (orderId) => {
+  try {
+    // 1. Otimista UI (Remove instantaneamente do mapa para não travar o motoboy)
+    if (orderMarkers[orderId]) {
+      map.removeLayer(orderMarkers[orderId])
+      delete orderMarkers[orderId]
+    }
+    cwOrders.value = cwOrders.value.filter(o => String(o.id) !== String(orderId))
+
+    // Se estiver em rota para este pedido, encerra a rota
+    if (activeRouteDest && String(activeRouteDest.orderId) === String(orderId)) {
+      if (window.stopRoute) window.stopRoute()
+    }
+
+    // 2. Avisa o Cardápio Web que o pedido foi entregue
+    if (orderId !== 'DEMO_TUTORIAL') {
+      await $fetch(`/api/cw/api/partner/v1/orders/${orderId}/delivered`, { method: 'POST' })
+        .catch(async () => {
+          // Se falhar o /delivered (ex: já finalizado ou regras do plano), tenta /finalize
+          return await $fetch(`/api/cw/api/partner/v1/orders/${orderId}/finalize`, { method: 'POST' }).catch(() => {})
+        })
+    }
+    
+    // 3. Remove a atribuição do Supabase para limpar o banco
+    await $fetch(`/api/assign/${orderId}`, { method: 'DELETE' })
+    
+    if (orderId === 'DEMO_TUTORIAL') {
+      if (window.stopRoute) window.stopRoute()
+    }
+  } catch (error) {
+    console.error('Erro ao confirmar entrega', error)
+    alert('Aviso: O pedido sumiu da sua tela, mas pode haver lentidão na sincronização com a loja.')
+  }
+}
 
 
 // --- ESTADO DO ADMIN ---
@@ -551,35 +700,16 @@ if (import.meta.client) {
     }
   }
 
-  window.confirmDelivery = async (orderId) => {
-    
-    try {
-      // 1. Otimista UI (Remove instantaneamente do mapa para não travar o motoboy)
-      if (orderMarkers[orderId]) {
-        map.removeLayer(orderMarkers[orderId])
-        delete orderMarkers[orderId]
-      }
-      cwOrders.value = cwOrders.value.filter(o => String(o.id) !== String(orderId))
+  window.confirmDelivery = (orderId) => {
+    const order = cwOrders.value.find(o => String(o.id) === String(orderId))
+    pendingOrder.value = order || { id: orderId }
+    showConfirmModal.value = true
+  }
 
-      // 2. Avisa o Cardápio Web que o pedido foi entregue
-      if (orderId !== 'DEMO_TUTORIAL') {
-        await $fetch(`/api/cw/api/partner/v1/orders/${orderId}/delivered`, { method: 'POST' })
-          .catch(async () => {
-            // Se falhar o /delivered (ex: já finalizado ou regras do plano), tenta /finalize
-            return await $fetch(`/api/cw/api/partner/v1/orders/${orderId}/finalize`, { method: 'POST' }).catch(() => {})
-          })
-      }
-      
-      // 3. Remove a atribuição do Supabase para limpar o banco
-      await $fetch(`/api/assign/${orderId}`, { method: 'DELETE' })
-      
-      if (orderId === 'DEMO_TUTORIAL') {
-        window.stopRoute()
-      }
-    } catch (error) {
-      console.error('Erro ao confirmar entrega', error)
-      alert('Aviso: O pedido sumiu da sua tela, mas pode haver lentidão na sincronização com a loja.')
-    }
+  window.confirmPlatformDelivery = async (orderId, platform) => {
+    const order = cwOrders.value.find(o => String(o.id) === String(orderId))
+    pendingOrder.value = order || { id: orderId }
+    await handleConfirmPlatform(platform)
   }
 }
 
@@ -681,7 +811,7 @@ const startDeliveryTracking = () => {
           if (currentMotoboyPos) {
             distKm = getDistance(currentMotoboyPos.lat, currentMotoboyPos.lng, lat, lng)
           }
-          const isNear = distKm < 0.2 // menos de 200 metros
+          const isNear = distKm < 0.3 || order.id === 'DEMO_TUTORIAL' // até 300 metros ou modo demo
 
           const orderNum = getOrderNumber(order)
           let popupHtml = `<b>Sua Entrega #${orderNum}</b><br>${order.customer?.name || order.cliente || 'Cliente'}<br>Status: ${order.status}`
@@ -693,7 +823,9 @@ const startDeliveryTracking = () => {
           }
           
           if (isNear) {
-            popupHtml += `<hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 10px 0;"><button onclick="window.confirmDelivery('${order.id}')" style="width:100%; background:#3b82f6; color:white; border:none; padding:10px; border-radius:4px; font-weight:bold; cursor:pointer; font-size: 14px;">✅ Confirmar Entrega</button>`
+            popupHtml += `<hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 10px 0;"><button onclick="window.confirmDelivery('${order.id}')" style="width:100%; background:linear-gradient(135deg, #10b981 0%, #059669 100%); color:white; border:none; padding:10px; border-radius:6px; font-weight:bold; cursor:pointer; font-size: 14px; box-shadow:0 2px 8px rgba(16,185,129,0.3);">✅ Confirmar Entrega</button>`
+          } else {
+            popupHtml += `<hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 10px 0;"><button onclick="window.confirmDelivery('${order.id}')" style="width:100%; background:rgba(59, 130, 246, 0.15); color:#60a5fa; border:1px solid rgba(59, 130, 246, 0.4); padding:8px; border-radius:6px; font-weight:600; cursor:pointer; font-size: 13px;">✅ Confirmar Entrega</button>`
           }
           
           if (!orderMarkers[order.id]) {
@@ -1230,4 +1362,190 @@ const triggerStopRoute = () => {
 :deep(.leaflet-popup-content-wrapper) { background: var(--color-surface); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 8px; }
 :deep(.leaflet-popup-tip) { background: var(--color-surface); }
 :deep(.leaflet-container a.leaflet-popup-close-button) { color: var(--color-text-secondary); }
+
+/* Modal de Confirmação de Entrega (iFood / 99Food / Direto) */
+.confirm-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 17, 21, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: fadeInModal 0.2s ease-out;
+}
+
+@keyframes fadeInModal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.confirm-modal-card {
+  width: 100%;
+  max-width: 420px;
+  background: rgba(30, 33, 40, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: slideUpModal 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUpModal {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.confirm-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.confirm-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.confirm-modal-icon {
+  font-size: 28px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 8px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.confirm-modal-title h3 {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.confirm-modal-subtitle {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  margin: 2px 0 0 0;
+}
+
+.confirm-modal-desc {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.confirm-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.platform-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-radius: 14px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  color: white;
+  width: 100%;
+}
+
+.platform-btn-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.platform-logo {
+  font-size: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.platform-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.platform-text strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.platform-text small {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.platform-arrow {
+  font-size: 18px;
+  font-weight: bold;
+  opacity: 0.8;
+}
+
+.ifood-btn {
+  background: linear-gradient(135deg, #ea1d2c 0%, #b9101d 100%);
+  box-shadow: 0 4px 15px rgba(234, 29, 44, 0.35);
+}
+.ifood-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(234, 29, 44, 0.5);
+}
+
+.ninenine-btn {
+  background: linear-gradient(135deg, #ff8c00 0%, #d97706 100%);
+  box-shadow: 0 4px 15px rgba(255, 140, 0, 0.35);
+}
+.ninenine-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(255, 140, 0, 0.5);
+}
+
+.direct-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+.direct-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  transform: translateY(-2px);
+}
+
+.btn-cancel-modal {
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 10px;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: var(--transition);
+}
+.btn-cancel-modal:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text-primary);
+}
 </style>
