@@ -14,7 +14,7 @@
     <div class="map-overlay-top">
       <div class="glass-panel profile-badge">
         <span v-if="userRole === 'admin'">Loja Ativa</span>
-        <span v-else>Motoboy Online: {{ userName }} - Taxa: R$ {{ totalTaxas.toFixed(2) }}</span>
+        <span v-else>Motoboy Online: {{ userName }} - Taxa: R$ {{ totalTaxas.toFixed(2) }} ({{ cwOrders ? cwOrders.length : 0 }})</span>
       </div>
     </div>
 
