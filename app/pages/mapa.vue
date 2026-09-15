@@ -13,7 +13,9 @@
     <!-- UI Overlay (opcional para o futuro) -->
     <div class="map-overlay-top">
       <div class="glass-panel profile-badge">
-        <span v-if="userRole === 'admin'">Loja Ativa</span>
+        <span v-if="userRole === 'admin'" :style="{ fontWeight: 'bold', color: storeStatus === 'Loja Aberta' ? '#10b981' : (storeStatus === 'Loja Fechada' ? '#ef4444' : 'inherit') }">
+          {{ storeStatus }}
+        </span>
         <span v-else>Motoboy Online: {{ userName }} - Taxa: R$ {{ dailyTaxas.toFixed(2) }} ({{ dailyDeliveries }})</span>
       </div>
     </div>
@@ -499,6 +501,7 @@ const executeConfirmDelivery = async (orderId) => {
 
 
 // --- ESTADO DO ADMIN ---
+const storeStatus = ref('Carregando Status...')
 const isPanelOpen = ref(false)
 const isDemoPanelOpen = ref(false)
 const selectedDemoMotoboy = ref('')
@@ -1497,8 +1500,44 @@ const updateAdminPins = async () => {
 }
 
 const fetchCwOrders = async () => {
+  if (userRole.value !== 'admin') return
   try {
     const summaryResponse = await $fetch('/api/cw/api/partner/v1/orders')
+    
+    // Processamento do status da loja
+    try {
+      const merchant = await $fetch('/api/cw/api/partner/v1/merchant')
+      if (merchant && merchant.opening_hours) {
+        if (merchant.opening_hours.temporary_state === 'closed') {
+          storeStatus.value = 'Loja Fechada'
+        } else if (merchant.opening_hours.temporary_state === 'open') {
+          storeStatus.value = 'Loja Aberta'
+        } else {
+          // Checa o horário pelo dia da semana (Brasil UTC-3)
+          const now = new Date()
+          const brTime = new Date(now.getTime() + now.getTimezoneOffset()*60000 - 3*3600000)
+          const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+          const todayName = days[brTime.getDay()]
+          
+          const periods = merchant.opening_hours[todayName]
+          let isOpen = false
+          if (periods && periods.length) {
+            const currentMins = brTime.getHours() * 60 + brTime.getMinutes()
+            for (const [startStr, endStr] of periods) {
+              const [h1, m1] = startStr.split(':').map(Number)
+              const [h2, m2] = endStr.split(':').map(Number)
+              const startMins = h1 * 60 + m1
+              const endMins = h2 * 60 + m2
+              if (currentMins >= startMins && currentMins <= endMins) isOpen = true
+            }
+          }
+          storeStatus.value = isOpen ? 'Loja Aberta' : 'Loja Fechada'
+        }
+      }
+    } catch(e) {
+      console.warn('Erro ao checar status da loja', e)
+    }
+
     const allOrdersSummary = summaryResponse.data || summaryResponse || []
 
     const activeOrderStatuses = new Set([
