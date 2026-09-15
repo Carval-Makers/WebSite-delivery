@@ -69,7 +69,7 @@
 
     <!-- Fab Motoboy "Melhor Rota" -->
     <button 
-      v-if="userRole === 'delivery' && !isRouting && cwOrders.length > 0" 
+      v-if="userRole === 'delivery' && !isRouting && cwOrders.length > 1" 
       class="fab-motoboy-parar btn-primary"
       style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);"
       @click="calculateBestRoute"
