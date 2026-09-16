@@ -5,26 +5,18 @@ export default defineEventHandler(async (event) => {
   const method = event.method
 
   // Remove possible trailing slashes to avoid issues
-  const baseUrl = (config.cardapioWebUrl || 'https://api.cardapioweb.com').replace(/\/$/, '')
-  const cleanPath = (path || '').replace(/^\//, '')
-
-  let targetUrl: string
-  if (baseUrl.endsWith('/api') && cleanPath.startsWith('api/')) {
-    targetUrl = `${baseUrl}/${cleanPath.slice(4)}`
-  } else {
-    targetUrl = `${baseUrl}/${cleanPath}`
-  }
+  const baseUrl = config.cardapioWebUrl.replace(/\/$/, '')
+  const targetUrl = `${baseUrl}/${path}`
 
   try {
-    const headers: Record<string, string> = {
+    const headers: HeadersInit = {
+      'X-API-KEY': config.cardapioWebApi,
       'Content-Type': 'application/json',
       'Accept': 'application/json'
     }
 
-    if (config.cardapioWebApi) {
-      headers['X-API-KEY'] = config.cardapioWebApi
-      headers['Authorization'] = `Bearer ${config.cardapioWebApi}`
-    }
+    // Se a API exigir a Partner Key também, podemos adicionar:
+    // 'X-PARTNER-KEY': config.cardapioWebPartnerKey
 
     let body
     if (method !== 'GET' && method !== 'HEAD') {
@@ -39,17 +31,18 @@ export default defineEventHandler(async (event) => {
       method,
       query,
       headers,
-      body
+      body,
+      redirect: 'manual' // Evita seguir redirects que dão erro
     })
 
     return response
   } catch (error: any) {
-    console.error(`[CW Proxy] Erro na requisição [${method} ${targetUrl}]:`, error.statusCode || error.message, error.data || '')
+    console.error('Erro no Proxy Cardápio Web:', error)
     
     // Repassa o erro original se existir
     throw createError({
       statusCode: error.statusCode || 500,
-      statusMessage: error.statusMessage || 'Erro interno de Proxy com a API Cardápio Web',
+      statusMessage: error.statusMessage || 'Erro interno de Proxy com a API Legacy',
       data: error.data
     })
   }
