@@ -26,7 +26,7 @@
       class="fab-motoboy btn-primary"
       @click="togglePanel"
     >
-      <i class="ph ph-motorcycle" style="font-size: 1.4em; margin-right: 8px;"></i> Motoboy
+      <i class="ph ph-motorcycle" style="font-size: 1.3em; margin-right: 8px;"></i> Motoboys
     </button>
 
     <!-- Fab Admin "Demonstrativo" -->
@@ -123,7 +123,7 @@
 
     <!-- Painel Lateral / Modal Glassmorphism -->
     <div v-if="isPanelOpen" class="panel-overlay" @click.self="togglePanel">
-      <div class="glass-panel delivery-panel" style="width: 360px; max-height: 560px;">
+      <div class="glass-panel delivery-panel">
         <div class="panel-header">
           <div style="display: flex; align-items: center; gap: 8px;">
             <i class="ph ph-motorcycle" style="font-size: 1.3em; color: var(--color-primary);"></i>
@@ -173,26 +173,39 @@
             </div>
           </div>
 
-          <div v-for="boy in motoboys" :key="boy.id" class="delivery-card">
-            <div class="delivery-item">
-              <div class="delivery-info" @click="toggleBoyOrders(boy.id)" style="cursor: pointer; flex: 1;">
+          <div 
+            v-for="boy in motoboys" 
+            :key="boy.id" 
+            class="delivery-card"
+            :class="{ 'is-expanded': expandedBoyId === boy.id }"
+          >
+            <div class="delivery-item" @click="toggleBoyOrders(boy.id)">
+              <div class="delivery-avatar">
+                <i class="ph ph-motorcycle"></i>
+              </div>
+              <div class="delivery-info">
                 <div class="delivery-title-row">
-                  <span class="delivery-name">{{ boy.login || boy.name }}</span>
-                  <span class="delivery-fee-badge" :class="{ 'has-fee': getBoyStats(boy.id).taxas > 0 }">
-                    R$ {{ getBoyStats(boy.id).taxas.toFixed(2) }}
-                  </span>
+                  <span class="delivery-name">{{ boy.name || boy.login }}</span>
+                  <span v-if="boy.name && boy.login && boy.name !== boy.login" class="delivery-username">@{{ boy.login }}</span>
                 </div>
                 <div class="delivery-sub-row">
                   <span class="delivery-count">
-                    <i class="ph ph-moped" style="font-size: 1.1em; vertical-align: middle;"></i>
+                    <i class="ph ph-package" style="font-size: 1em;"></i>
                     {{ getBoyStats(boy.id).deliveries }} {{ getBoyStats(boy.id).deliveries === 1 ? 'entrega' : 'entregas' }}
                   </span>
-                  <span v-if="getBoyStats(boy.id).deliveries > 0" class="delivery-expand-hint">
+                  <span class="delivery-expand-toggle">
                     <i :class="expandedBoyId === boy.id ? 'ph ph-caret-up' : 'ph ph-caret-down'"></i>
-                    {{ expandedBoyId === boy.id ? 'Ocultar' : 'Ver entregas' }}
+                    {{ expandedBoyId === boy.id ? 'Ocultar' : 'Entregas' }}
                   </span>
                 </div>
               </div>
+
+              <div class="delivery-fee-col">
+                <span class="delivery-fee-badge" :class="{ 'has-fee': getBoyStats(boy.id).taxas > 0 }">
+                  R$ {{ getBoyStats(boy.id).taxas.toFixed(2) }}
+                </span>
+              </div>
+
               <div class="delivery-actions">
                 <button class="btn-icon btn-edit" @click.stop="startEdit(boy)" title="Editar"><i class="ph ph-pencil-simple" style="font-size: 1.1em; color: #38bdf8;"></i></button>
                 <button class="btn-icon btn-delete" @click.stop="deleteDelivery(boy.id)" title="Deletar"><i class="ph ph-trash" style="font-size: 1.1em; color: #ef4444;"></i></button>
@@ -217,11 +230,13 @@
           </div>
           
           <div v-if="motoboys.length === 0" class="empty-state">
-            Nenhum motoboy cadastrado.
+            <i class="ph ph-users" style="font-size: 2em; color: var(--color-text-muted); margin-bottom: 8px;"></i>
+            <span>Nenhum motoboy cadastrado.</span>
           </div>
         </div>
         <div v-else class="loading-state">
-          Carregando...
+          <div class="loader-mini"></div>
+          <span>Carregando dados dos motoboys...</span>
         </div>
 
       </div>
@@ -1443,8 +1458,21 @@ const processMotoLocation = async (lat, lng, heading) => {
 
   if (!myMotoboyMarker) {
     const motoIcon = L.divIcon({
-      html: `<div id="my-moto-icon" style="font-size: 32px; filter: drop-shadow(0px 4px 4px rgba(0,0,0,0.4)); transform: rotate(${angle}deg); transition: transform 0.5s;"><i class="ph ph-motorcycle" style="font-size: 1.4em; margin-right: 8px;"></i></div>`,
-      className: 'custom-moto-icon', iconSize: [40, 40], iconAnchor: [20, 20]
+      html: `
+        <div class="moto-marker-wrap">
+          <div class="moto-pulse-ring"></div>
+          <div id="my-moto-icon" class="moto-pin-body my-gps-pin" style="transform: rotate(${angle}deg); transition: transform 0.4s ease;">
+            <svg width="22" height="22" viewBox="0 0 256 256" fill="white">
+              <path d="M245.54,124.64l-31-48A16,16,0,0,0,201.07,69H168V56a8,8,0,0,0-8-8H128a8,8,0,0,0,0,16h24V144H97.83a48,48,0,1,0,0,16H152a8,8,0,0,0,8-8V85h37.45l25.82,40H192a32,32,0,0,0-32,32,8,8,0,0,0,16,0,16,16,0,0,1,32,0,48,48,0,1,0,39.4-47.36ZM56,192a32,32,0,1,1,32-32A32,32,0,0,1,56,192Zm152,0a32,32,0,0,1-16-4.29V176a8,8,0,0,0,0-16,32,32,0,1,1,16,32Z"/>
+            </svg>
+            <span class="moto-live-dot"></span>
+          </div>
+          <div class="moto-name-pill">Você</div>
+        </div>
+      `,
+      className: 'custom-moto-marker-container',
+      iconSize: [44, 60],
+      iconAnchor: [22, 20]
     })
     myMotoboyMarker = L.marker([lat, lng], { icon: motoIcon }).addTo(map)
   } else {
@@ -1760,26 +1788,40 @@ const startAdminTracking = () => {
         }
       })
 
-      // Define o ícone de moto
-      const motoIcon = L.divIcon({
-        html: '<div style="font-size: 28px; filter: drop-shadow(0px 4px 4px rgba(0,0,0,0.4));"><i class="ph ph-motorcycle" style="font-size: 1.4em; margin-right: 8px;"></i></div>',
-        className: 'custom-moto-icon',
-        iconSize: [30, 30],
-        iconAnchor: [15, 15],
-        popupAnchor: [0, -15]
-      })
+      // Define o ícone de moto moderno
+      const createAdminMotoIcon = (name) => {
+        const firstName = (name || 'Motoboy').split(' ')[0]
+        return L.divIcon({
+          html: `
+            <div class="moto-marker-wrap">
+              <div class="moto-pulse-ring"></div>
+              <div class="moto-pin-body">
+                <svg width="22" height="22" viewBox="0 0 256 256" fill="white">
+                  <path d="M245.54,124.64l-31-48A16,16,0,0,0,201.07,69H168V56a8,8,0,0,0-8-8H128a8,8,0,0,0,0,16h24V144H97.83a48,48,0,1,0,0,16H152a8,8,0,0,0,8-8V85h37.45l25.82,40H192a32,32,0,0,0-32,32,8,8,0,0,0,16,0,16,16,0,0,1,32,0,48,48,0,1,0,39.4-47.36ZM56,192a32,32,0,1,1,32-32A32,32,0,0,1,56,192Zm152,0a32,32,0,0,1-16-4.29V176a8,8,0,0,0,0-16,32,32,0,1,1,16,32Z"/>
+                </svg>
+                <span class="moto-live-dot"></span>
+              </div>
+              <div class="moto-name-pill">${firstName}</div>
+            </div>
+          `,
+          className: 'custom-moto-marker-container',
+          iconSize: [44, 60],
+          iconAnchor: [22, 20],
+          popupAnchor: [0, -22]
+        })
+      }
 
       // Adiciona ou atualiza marcadores novos
       activeLocations.forEach(loc => {
         const boyStat = getBoyStats(loc.userId)
-        const popupHtml = `<b><i class="ph ph-motorcycle" style="font-size: 1.4em; margin-right: 8px;"></i> ${loc.name}</b><br><span style="color: #10b981;">Online agora</span><div style="margin-top: 4px; font-weight: 600;">Taxa hoje: <span style="color: #38bdf8;">R$ ${boyStat.taxas.toFixed(2)}</span> <span style="font-size: 11px; color: var(--color-text-secondary); font-weight: normal;">(${boyStat.deliveries} ${boyStat.deliveries === 1 ? 'entrega' : 'entregas'})</span></div>`
+        const popupHtml = `<b>🏍️ ${loc.name}</b><br><span style="color: #10b981; font-weight: 600;">● Online agora</span><div style="margin-top: 6px; font-weight: 600;">Taxas hoje: <span style="color: #38bdf8;">R$ ${boyStat.taxas.toFixed(2)}</span> <span style="font-size: 11px; color: var(--color-text-secondary); font-weight: normal;">(${boyStat.deliveries} ${boyStat.deliveries === 1 ? 'entrega' : 'entregas'})</span></div>`
         if (deliveryMarkers[loc.userId]) {
           // Atualiza posição e popup
           deliveryMarkers[loc.userId].setLatLng([loc.lat, loc.lng])
           deliveryMarkers[loc.userId].setPopupContent(popupHtml)
         } else {
           // Cria novo pino com ícone de moto
-          const marker = L.marker([loc.lat, loc.lng], { icon: motoIcon }).addTo(map)
+          const marker = L.marker([loc.lat, loc.lng], { icon: createAdminMotoIcon(loc.name) }).addTo(map)
           marker.bindPopup(popupHtml)
           deliveryMarkers[loc.userId] = marker
         }
@@ -1823,7 +1865,6 @@ const togglePanel = () => {
   if (isPanelOpen.value) {
     isDemoPanelOpen.value = false
     fetchMotoboys()
-    fetchMotoboyEarnings()
   }
 }
 
@@ -2310,13 +2351,15 @@ const fetchMotoboyEarnings = async () => {
 }
 
 const fetchMotoboys = async () => {
-  isLoading.value = true
+  if (motoboys.value.length === 0) {
+    isLoading.value = true
+  }
   try {
-    const data = await $fetch('/api/delivery')
-    motoboys.value = data
-    if (userRole.value === 'admin') {
-      fetchMotoboyEarnings()
-    }
+    const [data] = await Promise.all([
+      $fetch('/api/delivery'),
+      userRole.value === 'admin' ? fetchMotoboyEarnings() : Promise.resolve()
+    ])
+    motoboys.value = data || []
   } catch (error) {
     console.error('Erro ao buscar motoboys', error)
   } finally {
@@ -2425,9 +2468,13 @@ const triggerStopRoute = () => {
 /* Fab Botoes Premium */
 .fab-motoboy, .fab-demo, .fab-taxas, .fab-devolvidos {
   position: absolute;
-  border-radius: 50%;
-  width: 56px;
-  height: 56px;
+  right: 30px;
+  height: 48px;
+  width: auto;
+  padding: 0 20px;
+  border-radius: 16px;
+  font-weight: 600;
+  font-size: 14px;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -2435,11 +2482,12 @@ const triggerStopRoute = () => {
   border: 1px solid rgba(255,255,255,0.1);
   z-index: 1000;
   transition: var(--transition);
+  cursor: pointer;
 }
-.fab-motoboy { bottom: 30px; right: 30px; width: auto; padding: 0 24px; border-radius: 28px; }
-.fab-demo { bottom: 90px; right: 30px; border-radius: 16px; width: auto; padding: 0 20px; font-weight: 600; height: 48px; }
-.fab-taxas { bottom: 150px; right: 30px; border-radius: 16px; width: auto; padding: 0 20px; font-weight: 600; height: 48px; }
-.fab-devolvidos { bottom: 210px; right: 30px; border-radius: 16px; width: auto; padding: 0 20px; font-weight: 600; height: 48px; }
+.fab-motoboy { bottom: 30px; }
+.fab-demo { bottom: 90px; }
+.fab-taxas { bottom: 150px; }
+.fab-devolvidos { bottom: 210px; }
 
 .fab-motoboy:hover, .fab-demo:hover, .fab-taxas:hover, .fab-devolvidos:hover {
   transform: translateY(-3px);
@@ -2490,12 +2538,14 @@ const triggerStopRoute = () => {
 }
 
 .delivery-panel {
-  width: 320px;
-  max-height: 450px;
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 120px);
   border-radius: 16px;
   padding: 16px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   animation: slideUpFade 0.2s ease-out;
   box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);
 }
@@ -2509,10 +2559,11 @@ const triggerStopRoute = () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
+  flex-shrink: 0;
 }
 
-.panel-header h2 { font-size: 16px; margin: 0; }
+.panel-header h2 { font-size: 16px; font-weight: 700; margin: 0; }
 
 .btn-icon {
   background: var(--color-surface);
@@ -2527,7 +2578,15 @@ const triggerStopRoute = () => {
 .btn-icon:hover { background: var(--color-surface-hover); transform: scale(1.05); }
 
 /* Lista de entregadores e taxas */
-.delivery-list { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+.delivery-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  padding-right: 2px;
+}
 
 .delivery-summary-card {
   display: flex;
@@ -2538,6 +2597,7 @@ const triggerStopRoute = () => {
   border-radius: 12px;
   padding: 10px 12px;
   margin-bottom: 4px;
+  flex-shrink: 0;
 }
 .summary-item {
   display: flex;
@@ -2568,61 +2628,128 @@ const triggerStopRoute = () => {
 .delivery-card {
   display: flex;
   flex-direction: column;
-  background: rgba(0,0,0,0.25);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(24, 24, 27, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
   overflow: hidden;
   transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 .delivery-card:hover {
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: rgba(99, 102, 241, 0.35);
+  background: rgba(30, 30, 36, 0.75);
+}
+.delivery-card.is-expanded {
+  border-color: rgba(99, 102, 241, 0.6);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
 }
 
 .delivery-item {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 10px;
   padding: 12px 14px;
+  cursor: pointer;
+  user-select: none;
 }
-.delivery-info { display: flex; flex-direction: column; gap: 4px; }
-.delivery-title-row { display: flex; align-items: center; gap: 8px; }
-.delivery-name { font-weight: 600; font-size: 15px; }
 
-.delivery-fee-badge {
-  font-size: 12px;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--color-text-secondary);
+.delivery-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
 }
-.delivery-fee-badge.has-fee {
-  background: rgba(16, 185, 129, 0.2);
-  color: #10b981;
-  border: 1px solid rgba(16, 185, 129, 0.35);
+
+.delivery-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.delivery-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.delivery-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.delivery-username {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .delivery-sub-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   font-size: 12px;
   color: var(--color-text-secondary);
 }
+
 .delivery-count {
   display: flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
 }
-.delivery-expand-hint {
-  font-size: 11px;
-  color: #38bdf8;
+
+.delivery-expand-toggle {
   display: flex;
   align-items: center;
   gap: 3px;
+  font-size: 11px;
+  color: #38bdf8;
+  white-space: nowrap;
 }
-.delivery-expand-hint:hover {
-  text-decoration: underline;
+
+.delivery-fee-col {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.delivery-fee-badge {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
+}
+.delivery-fee-badge.has-fee {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.delivery-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .delivery-orders-dropdown {
@@ -2648,7 +2775,7 @@ const triggerStopRoute = () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 5px 8px;
+  padding: 6px 10px;
   background: rgba(255, 255, 255, 0.03);
   border-radius: 6px;
   font-size: 12px;
@@ -2671,7 +2798,38 @@ const triggerStopRoute = () => {
   color: #10b981;
 }
 
-.delivery-actions { display: flex; align-items: center; gap: 8px; }
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  text-align: center;
+  gap: 6px;
+}
+
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  gap: 12px;
+}
+
+.loader-mini {
+  width: 24px;
+  height: 24px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  border-top-color: var(--color-primary);
+  animation: spin 0.8s linear infinite;
+}
+
 .btn-edit { background: rgba(56, 189, 248, 0.15); }
 .btn-edit:hover { background: rgba(56, 189, 248, 0.3); }
 .btn-delete { background: rgba(239, 68, 68, 0.15); }
@@ -2694,12 +2852,99 @@ const triggerStopRoute = () => {
 /* Botoes compartilhados herdados do main.css */
 
 /* Customização de Ícones no Mapa */
-:deep(.custom-moto-icon) {
-  background: transparent;
-  border: none;
+:deep(.custom-moto-icon),
+:deep(.custom-moto-marker-container) {
+  background: transparent !important;
+  border: none !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+}
+
+:deep(.moto-marker-wrap) {
+  position: relative;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
   align-items: center;
+  justify-content: center;
+}
+
+:deep(.moto-pin-body) {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
+  border: 2.5px solid #ffffff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 2;
+  transition: transform 0.2s ease;
+}
+
+:deep(.moto-pin-body.my-gps-pin) {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+}
+
+:deep(.moto-pin-body:hover) {
+  transform: scale(1.1);
+}
+
+:deep(.moto-pulse-ring) {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 40px;
+  height: 40px;
+  margin-left: -20px;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, 0.45);
+  animation: moto-pulse-anim 2s infinite ease-out;
+  z-index: 1;
+  pointer-events: none;
+}
+
+@keyframes moto-pulse-anim {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+:deep(.moto-live-dot) {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 10px;
+  height: 10px;
+  background: #10b981;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 6px #10b981;
+}
+
+:deep(.moto-name-pill) {
+  background: rgba(15, 17, 21, 0.88);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  white-space: nowrap;
+  margin-top: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  pointer-events: none;
+  z-index: 2;
+  letter-spacing: 0.2px;
 }
 
 :deep(.order-pin-icon) {
