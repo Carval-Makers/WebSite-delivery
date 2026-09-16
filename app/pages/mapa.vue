@@ -878,6 +878,10 @@ onMounted(async () => {
     userName.value = user.name
   } catch(e) {}
 
+  if (userRole.value === 'admin') {
+    fetchStoreStatus()
+  }
+
   // Inicializa Mapa
   L = (await import('leaflet')).default
   await import('leaflet/dist/leaflet.css')
@@ -1921,124 +1925,146 @@ const fetchReturnedOrders = async () => {
 
 let cachedMerchant = null
 let lastMerchantFetchTime = 0
+let isFetchingStoreStatus = false
+
+const fetchStoreStatus = async () => {
+  if (userRole.value !== 'admin' || isFetchingStoreStatus) return
+  isFetchingStoreStatus = true
+  try {
+    const nowTs = Date.now()
+    // Respeita o rate limit da Cardápio Web (máx 5 req/min no /merchant)
+    if (!cachedMerchant || nowTs - lastMerchantFetchTime > 60000) {
+      const res = await $fetch('/api/cw/api/partner/v1/merchant').catch(err => {
+        console.warn('Erro ao consultar /merchant:', err)
+        return null
+      })
+      if (res) {
+        cachedMerchant = res
+        lastMerchantFetchTime = nowTs
+      }
+    }
+
+    const merchantData = cachedMerchant?.data || cachedMerchant
+    if (!merchantData) {
+      if (storeStatus.value === 'Carregando Status...') {
+        storeStatus.value = 'Loja Aberta'
+      }
+      return
+    }
+
+    if (merchantData?.status === 'INACTIVE') {
+      storeStatus.value = 'Loja Desativada'
+      return
+    }
+
+    const openingHours = merchantData?.opening_hours
+    if (!openingHours) {
+      storeStatus.value = merchantData?.is_open ? 'Loja Aberta' : 'Loja Aberta'
+      return
+    }
+
+    const tempState = openingHours.temporary_state
+    const tempEndAt = openingHours.temporary_state_end_at ? new Date(openingHours.temporary_state_end_at).getTime() : null
+    const isTempExpired = tempEndAt ? tempEndAt <= nowTs : false
+
+    if (tempState === 'open' && !isTempExpired) {
+      storeStatus.value = 'Loja Aberta'
+      return
+    }
+    if (tempState === 'closed' && !isTempExpired) {
+      storeStatus.value = 'Loja Fechada'
+      return
+    }
+
+    // Horário de funcionamento regular
+    const tz = openingHours.timezone || 'America/Sao_Paulo'
+    const now = new Date()
+
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      weekday: 'long',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).formatToParts(now)
+
+    const getP = (t) => parts.find(p => p.type === t)?.value || ''
+    const year = getP('year')
+    const month = getP('month')
+    const day = getP('day')
+    const weekday = getP('weekday').toLowerCase()
+    const hour = parseInt(getP('hour'), 10) || 0
+    const minute = parseInt(getP('minute'), 10) || 0
+    const currentMins = hour * 60 + minute
+    const todayDateStr = `${year}-${month}-${day}`
+
+    let periods = null
+    if (openingHours.custom_dates && openingHours.custom_dates[todayDateStr]) {
+      periods = openingHours.custom_dates[todayDateStr].intervals
+    } else if (openingHours[weekday]) {
+      periods = openingHours[weekday]
+    }
+
+    let isOpen = false
+    if (periods && periods.length) {
+      for (const [startStr, endStr] of periods) {
+        const [h1, m1] = startStr.split(':').map(Number)
+        const [h2, m2] = endStr.split(':').map(Number)
+        const startMins = h1 * 60 + m1
+        let endMins = (endStr === '00:00' || (h2 === 0 && m2 === 0)) ? 24 * 60 : h2 * 60 + m2
+
+        if (endMins >= startMins) {
+          if (currentMins >= startMins && currentMins <= endMins) {
+            isOpen = true
+            break
+          }
+        } else {
+          if (currentMins >= startMins || currentMins <= endMins) {
+            isOpen = true
+            break
+          }
+        }
+      }
+    }
+
+    if (!isOpen) {
+      const daysList = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+      const prevDayIndex = (daysList.indexOf(weekday) + 6) % 7
+      const prevDayName = daysList[prevDayIndex]
+      const prevPeriods = openingHours[prevDayName] || []
+      for (const [startStr, endStr] of prevPeriods) {
+        const [h1, m1] = startStr.split(':').map(Number)
+        const [h2, m2] = endStr.split(':').map(Number)
+        const startMins = h1 * 60 + m1
+        const endMins = h2 * 60 + m2
+        if (endMins < startMins && currentMins <= endMins) {
+          isOpen = true
+          break
+        }
+      }
+    }
+
+    storeStatus.value = isOpen ? 'Loja Aberta' : 'Loja Fechada'
+  } catch(e) {
+    console.warn('Erro ao checar status da loja', e)
+    if (storeStatus.value === 'Carregando Status...') {
+      storeStatus.value = 'Loja Aberta'
+    }
+  } finally {
+    isFetchingStoreStatus = false
+  }
+}
 
 const fetchCwOrders = async () => {
   if (userRole.value !== 'admin') return
   try {
+    // Atualiza status da loja em background
+    fetchStoreStatus()
+
     const summaryResponse = await $fetch('/api/cw/api/partner/v1/orders')
-    
-    // Processamento do status da loja
-    try {
-      const nowTs = Date.now()
-      // Respeita o rate limit da Cardápio Web (máx 5 req/min no /merchant)
-      if (!cachedMerchant || nowTs - lastMerchantFetchTime > 60000) {
-        cachedMerchant = await $fetch('/api/cw/api/partner/v1/merchant').catch(err => {
-          console.warn('Erro ao consultar /merchant:', err)
-          return cachedMerchant
-        })
-        if (cachedMerchant) lastMerchantFetchTime = nowTs
-      }
-
-      const merchantData = cachedMerchant?.data || cachedMerchant
-      const openingHours = merchantData?.opening_hours
-
-      if (merchantData?.status === 'INACTIVE') {
-        storeStatus.value = 'Loja Desativada'
-      } else if (openingHours) {
-        const tempState = openingHours.temporary_state
-        const tempEndAt = openingHours.temporary_state_end_at ? new Date(openingHours.temporary_state_end_at).getTime() : null
-        const isTempExpired = tempEndAt ? tempEndAt <= nowTs : false
-
-        // 1. Sobreposição forçada de estado (temporary_state: open / closed)
-        const isOpenOverride = tempState === 'open' && !isTempExpired
-        const isClosedOverride = tempState === 'closed' && !isTempExpired
-
-        if (isOpenOverride) {
-          storeStatus.value = 'Loja Aberta'
-        } else if (isClosedOverride) {
-          storeStatus.value = 'Loja Fechada'
-        } else {
-          // 2. Horário de funcionamento regular
-          const tz = openingHours.timezone || 'America/Sao_Paulo'
-          const now = new Date()
-
-          const parts = new Intl.DateTimeFormat('en-US', {
-            timeZone: tz,
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            weekday: 'long',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false
-          }).formatToParts(now)
-
-          const getP = (t) => parts.find(p => p.type === t)?.value || ''
-          const year = getP('year')
-          const month = getP('month')
-          const day = getP('day')
-          const weekday = getP('weekday').toLowerCase() // 'sunday', 'monday', etc.
-          const hour = parseInt(getP('hour'), 10) || 0
-          const minute = parseInt(getP('minute'), 10) || 0
-          const currentMins = hour * 60 + minute
-          const todayDateStr = `${year}-${month}-${day}` // YYYY-MM-DD
-
-          // Prioridade para custom_dates (feriados, datas personalizadas)
-          let periods = null
-          if (openingHours.custom_dates && openingHours.custom_dates[todayDateStr]) {
-            periods = openingHours.custom_dates[todayDateStr].intervals
-          } else if (openingHours[weekday]) {
-            periods = openingHours[weekday]
-          }
-
-          let isOpen = false
-          if (periods && periods.length) {
-            for (const [startStr, endStr] of periods) {
-              const [h1, m1] = startStr.split(':').map(Number)
-              const [h2, m2] = endStr.split(':').map(Number)
-              const startMins = h1 * 60 + m1
-              // Se fecha às 00:00, considera fim do dia (24h = 1440 mins)
-              let endMins = (endStr === '00:00' || (h2 === 0 && m2 === 0)) ? 24 * 60 : h2 * 60 + m2
-
-              if (endMins >= startMins) {
-                if (currentMins >= startMins && currentMins <= endMins) {
-                  isOpen = true
-                  break
-                }
-              } else {
-                // Vira a noite (ex: 18:00 às 02:00)
-                if (currentMins >= startMins || currentMins <= endMins) {
-                  isOpen = true
-                  break
-                }
-              }
-            }
-          }
-
-          // Se não estiver aberto no horário de hoje, checa se o turno de ontem virou a madrugada
-          if (!isOpen) {
-            const daysList = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-            const prevDayIndex = (daysList.indexOf(weekday) + 6) % 7
-            const prevDayName = daysList[prevDayIndex]
-            const prevPeriods = openingHours[prevDayName] || []
-            for (const [startStr, endStr] of prevPeriods) {
-              const [h1, m1] = startStr.split(':').map(Number)
-              const [h2, m2] = endStr.split(':').map(Number)
-              const startMins = h1 * 60 + m1
-              const endMins = h2 * 60 + m2
-              if (endMins < startMins && currentMins <= endMins) {
-                isOpen = true
-                break
-              }
-            }
-          }
-
-          storeStatus.value = isOpen ? 'Loja Aberta' : 'Loja Fechada'
-        }
-      }
-    } catch(e) {
-      console.warn('Erro ao checar status da loja', e)
-    }
 
     const allOrdersSummary = summaryResponse.data || summaryResponse || []
 
