@@ -520,7 +520,7 @@ const loadDailyStats = async () => {
 }
 
 const updateDailyStats = async (fee, orderId) => {
-  if (userRole.value !== 'delivery') return
+  if (userRole.value !== 'delivery' || !orderId || String(orderId) === 'DEMO_TUTORIAL') return
   try {
     // Atualiza otimista na tela
     dailyTaxas.value += fee
@@ -532,6 +532,87 @@ const updateDailyStats = async (fee, orderId) => {
       body: { motoboyId: userId.value, orderId, fee }
     })
   } catch (e) {}
+}
+
+const processingDeliveredOrders = new Set()
+
+const isOrderDelivered = (status) => {
+  if (!status) return false
+  const s = String(status).trim().toLowerCase()
+  return (
+    s === 'delivered' ||
+    s === 'concluded' ||
+    s === 'finalized' ||
+    s === 'completed' ||
+    s === 'finished' ||
+    s === 'entregue' ||
+    s === 'concluido' ||
+    s === 'concluído'
+  )
+}
+
+const autoResolveDeliveredOrder = async (orderId, motoboyId, motoboyName, existingOrderData = null) => {
+  if (!orderId || String(orderId) === 'DEMO_TUTORIAL') return
+  const idStr = String(orderId)
+  if (processingDeliveredOrders.has(idStr)) return
+  processingDeliveredOrders.add(idStr)
+
+  try {
+    // 1. Busca os dados do pedido se necessário para calcular a taxa da zona
+    let orderData = existingOrderData
+    if (!orderData || (!orderData.delivery_address && !orderData.data?.delivery_address)) {
+      try {
+        const detail = await $fetch(`/api/cw/api/partner/v1/orders/${idStr}`)
+        const detailData = (detail && typeof detail === 'object' && 'data' in detail && detail.data && typeof detail.data === 'object' && !Array.isArray(detail.data)) 
+          ? detail.data 
+          : (detail || {})
+        orderData = { ...(existingOrderData || {}), ...detailData }
+      } catch (e) {
+        orderData = existingOrderData || { id: idStr }
+      }
+    }
+
+    // 2. Calcula a taxa da zona correspondente (ou taxa que veio no pedido)
+    const fee = calculateOrderFee(orderData)
+
+    // 3. Salva o ganho do motoboy no Supabase (taxa + contagem de entrega)
+    if (motoboyId) {
+      await $fetch('/api/earnings', {
+        method: 'POST',
+        body: {
+          motoboyId: String(motoboyId),
+          orderId: idStr,
+          fee: Number(fee)
+        }
+      })
+      console.log(`[Auto-Confirmação Cliente] Pedido #${idStr} entregue! Taxa de R$ ${fee} creditada para o motoboy ${motoboyName || motoboyId}.`)
+    }
+
+    // 4. Remove a atribuição do Supabase
+    await $fetch(`/api/assign/${idStr}`, { method: 'DELETE' }).catch(() => {})
+
+    // 5. Remove o marcador do mapa se existir
+    if (orderMarkers[idStr]) {
+      map.removeLayer(orderMarkers[idStr])
+      delete orderMarkers[idStr]
+    }
+    cwOrders.value = cwOrders.value.filter(o => String(o.id) !== idStr)
+
+    // 6. Atualiza estatísticas do motoboy ou admin
+    if (userRole.value === 'delivery') {
+      if (activeRouteDest && String(activeRouteDest.orderId) === idStr) {
+        if (window.stopRoute) window.stopRoute()
+      }
+      await loadDailyStats()
+    } else if (userRole.value === 'admin') {
+      if (typeof fetchMotoboyEarnings === 'function') fetchMotoboyEarnings()
+      if (typeof updateAdminPins === 'function') updateAdminPins()
+    }
+  } catch (err) {
+    console.error(`[Auto-Confirmação Cliente] Erro ao processar pedido #${idStr}:`, err)
+  } finally {
+    processingDeliveredOrders.delete(idStr)
+  }
 }
 
 const getOrderChannel = (order) => {
@@ -639,9 +720,11 @@ const executeConfirmDelivery = async (orderId) => {
     }
     
     // --- Lógica da Taxa ---
-    const order = cwOrders.value.find(o => String(o.id) === String(orderId))
-    const fee = calculateOrderFee(order)
-    updateDailyStats(fee, orderId)
+    if (orderId !== 'DEMO_TUTORIAL') {
+      const order = cwOrders.value.find(o => String(o.id) === String(orderId))
+      const fee = calculateOrderFee(order)
+      updateDailyStats(fee, orderId)
+    }
     // -----------------------
 
     cwOrders.value = cwOrders.value.filter(o => String(o.id) !== String(orderId))
@@ -680,9 +763,11 @@ const executeReturnDelivery = async (orderId) => {
     }
     
     // --- Lógica da Taxa (Ganha a taxa mesmo devolvendo) ---
-    const order = cwOrders.value.find(o => String(o.id) === String(orderId))
-    const fee = calculateOrderFee(order)
-    updateDailyStats(fee, orderId)
+    if (orderId !== 'DEMO_TUTORIAL') {
+      const order = cwOrders.value.find(o => String(o.id) === String(orderId))
+      const fee = calculateOrderFee(order)
+      updateDailyStats(fee, orderId)
+    }
     // -----------------------
 
     cwOrders.value = cwOrders.value.filter(o => String(o.id) !== String(orderId))
@@ -1503,9 +1588,40 @@ const startDeliveryTracking = () => {
       }
 
       // Busca dados dos pedidos (poderiamos buscar do proxy, mas vamos pegar todos e filtrar)
-      const summaryResponse = await $fetch('/api/cw/api/partner/v1/orders')
+      const summaryResponse = await $fetch('/api/cw/api/partner/v1/orders').catch(() => [])
       const allOrdersSummary = summaryResponse.data || summaryResponse || []
       
+      // ⚡ DETECÇÃO DE CONFIRMAÇÃO DO CLIENTE / CARDÁPIO WEB (VISÃO MOTOBOY):
+      // Roda em segundo plano sem travar a tela
+      const checkMotoboyAutoDeliveries = async () => {
+        try {
+          const allOrdersMap = new Map()
+          if (Array.isArray(allOrdersSummary)) {
+            allOrdersSummary.forEach(o => allOrdersMap.set(String(o.id), o))
+          }
+
+          await Promise.allSettled(myAssignments.map(async (assignment) => {
+            const orderIdStr = String(assignment.orderId)
+            if (orderIdStr === 'DEMO_TUTORIAL') return
+
+            const foundInSummary = allOrdersMap.get(orderIdStr)
+            if (foundInSummary && isOrderDelivered(foundInSummary.status)) {
+              await autoResolveDeliveredOrder(orderIdStr, assignment.motoboyId, assignment.motoboyName, foundInSummary)
+            } else if (!foundInSummary) {
+              try {
+                const detail = await $fetch(`/api/cw/api/partner/v1/orders/${orderIdStr}`)
+                const detailData = (detail && typeof detail === 'object' && 'data' in detail && detail.data && typeof detail.data === 'object' && !Array.isArray(detail.data)) ? detail.data : (detail || {})
+                const status = detailData.status || detail.status
+                if (isOrderDelivered(status)) {
+                  await autoResolveDeliveredOrder(orderIdStr, assignment.motoboyId, assignment.motoboyName, detailData)
+                }
+              } catch (e) {}
+            }
+          }))
+        } catch (e) {
+          console.warn('Erro ao verificar auto-entrega no Motoboy:', e)
+        }
+      }
       
       // Filtra os que são MEUS e estão ativos
       const activeOrderStatuses = new Set(['waiting_confirmation', 'pending_payment', 'pending_online_payment', 'scheduled_confirmed', 'confirmed', 'ready', 'released', 'canceling'])
@@ -1610,6 +1726,9 @@ const startDeliveryTracking = () => {
           }
         }
       })
+
+      // Executa verificação de auto-entrega em background
+      checkMotoboyAutoDeliveries()
     } catch (e) {
       console.error('Erro ao buscar meus pedidos', e)
     }
@@ -2105,8 +2224,50 @@ const fetchCwOrders = async () => {
 
     // Aciona a repintura dos pinos
     updateAdminPins()
+
+    // ⚡ DETECÇÃO DE CONFIRMAÇÃO DO CLIENTE / CARDÁPIO WEB (VISÃO ADMIN):
+    // Roda em segundo plano para creditar taxa e entrega caso cliente tenha confirmado
+    checkAdminAutoDeliveries(allOrdersSummary)
   } catch (error) {
     console.error('Erro ao buscar pedidos do Cardápio Web', error)
+  }
+}
+
+let isCheckingAdminAutoDeliveries = false
+const checkAdminAutoDeliveries = async (allOrdersSummary) => {
+  if (isCheckingAdminAutoDeliveries) return
+  isCheckingAdminAutoDeliveries = true
+  try {
+    const allAssignments = await $fetch('/api/assign').catch(() => [])
+    if (Array.isArray(allAssignments) && allAssignments.length > 0) {
+      const allOrdersMap = new Map()
+      if (Array.isArray(allOrdersSummary)) {
+        allOrdersSummary.forEach(o => allOrdersMap.set(String(o.id), o))
+      }
+
+      await Promise.allSettled(allAssignments.map(async (assignment) => {
+        const orderIdStr = String(assignment.orderId)
+        if (orderIdStr === 'DEMO_TUTORIAL') return
+
+        const foundInSummary = allOrdersMap.get(orderIdStr)
+        if (foundInSummary && isOrderDelivered(foundInSummary.status)) {
+          await autoResolveDeliveredOrder(orderIdStr, assignment.motoboyId, assignment.motoboyName, foundInSummary)
+        } else if (!foundInSummary) {
+          try {
+            const detail = await $fetch(`/api/cw/api/partner/v1/orders/${orderIdStr}`)
+            const detailData = (detail && typeof detail === 'object' && 'data' in detail && detail.data && typeof detail.data === 'object' && !Array.isArray(detail.data)) ? detail.data : (detail || {})
+            const status = detailData.status || detail.status
+            if (isOrderDelivered(status)) {
+              await autoResolveDeliveredOrder(orderIdStr, assignment.motoboyId, assignment.motoboyName, detailData)
+            }
+          } catch (e) {}
+        }
+      }))
+    }
+  } catch (e) {
+    console.warn('Erro ao verificar auto-entrega no Admin:', e)
+  } finally {
+    isCheckingAdminAutoDeliveries = false
   }
 }
 

@@ -28,6 +28,7 @@ export default defineEventHandler(async (event) => {
       .from('motoboy_earnings')
       .select('id, motoboy_id, order_id, fee, created_at')
       .gte('created_at', shiftStartIso)
+      .neq('order_id', 'DEMO_TUTORIAL')
       .order('created_at', { ascending: false })
 
     if (motoboyId) {
@@ -41,7 +42,7 @@ export default defineEventHandler(async (event) => {
       throw error
     }
 
-    const earnings = data || []
+    const earnings = (data || []).filter(item => String(item.order_id) !== 'DEMO_TUTORIAL')
 
     if (motoboyId) {
       const totalTaxas = earnings.reduce((acc, curr) => acc + Number(curr.fee || 0), 0)

@@ -8,9 +8,25 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Dados incompletos para registrar taxa.' })
   }
 
+  // DEMO_TUTORIAL não deve contabilizar
+  if (String(orderId) === 'DEMO_TUTORIAL') {
+    return { success: true, ignored: true, message: 'DEMO_TUTORIAL não contabiliza.' }
+  }
+
   try {
     const supabase = getSupabase()
     
+    // Evita duplicar ganhos se o pedido já foi registrado anteriormente
+    const { data: existing } = await supabase
+      .from('motoboy_earnings')
+      .select('id, fee')
+      .eq('order_id', String(orderId))
+      .maybeSingle()
+
+    if (existing) {
+      return { success: true, alreadyRecorded: true, data: existing }
+    }
+
     // Insere o registro de ganho
     const { data, error } = await supabase.from('motoboy_earnings').insert({
       motoboy_id: String(motoboyId),
