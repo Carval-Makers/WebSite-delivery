@@ -491,18 +491,156 @@ const getZoneColor = (zone, index = 0) => {
   return ZONE_COLORS[Math.abs(hash) % ZONE_COLORS.length]
 }
 
+// --- CACHE & GEOCODING DE PEDIDOS ---
+const geocodeCache = new Map()
+const geocodingInProgress = new Set()
+
+const getOrderAddressText = (order) => {
+  if (!order) return ''
+  const addr = order.delivery_address || order.data?.delivery_address || order.address || {}
+  if (typeof addr === 'string') return addr.trim()
+  if (addr.formatted_address && typeof addr.formatted_address === 'string') {
+    return addr.formatted_address.trim()
+  }
+  const parts = []
+  const street = addr.street || addr.logradouro || addr.street_name || addr.address
+  const number = addr.number || addr.numero
+  if (street) {
+    parts.push(number ? `${street}, ${number}` : street)
+  }
+  const neighborhood = addr.neighborhood || addr.bairro
+  if (neighborhood) parts.push(neighborhood)
+  const city = addr.city || addr.cidade
+  if (city) parts.push(city)
+  const state = addr.state || addr.uf
+  if (state) parts.push(state)
+  const postal = addr.postal_code || addr.cep
+  if (postal) parts.push(postal)
+  
+  return parts.filter(Boolean).join(', ')
+}
+
+const isValidCoordinate = (lat, lng) => {
+  return typeof lat === 'number' && typeof lng === 'number' &&
+    !isNaN(lat) && !isNaN(lng) &&
+    lat !== 0 && lng !== 0 &&
+    Math.abs(lat) <= 90 && Math.abs(lng) <= 180
+}
+
+const getOrderCoords = (order, index = 0) => {
+  if (!order) return { lat: -22.549, lng: -41.975, isFallback: true }
+
+  // 1. Coordenadas diretas no objeto
+  const directLat = Number(order.lat ?? order.latitude)
+  const directLng = Number(order.lng ?? order.longitude)
+  if (isValidCoordinate(directLat, directLng)) {
+    return { lat: directLat, lng: directLng, isFallback: false }
+  }
+
+  // 2. Coordenadas em delivery_address ou data.delivery_address
+  const addr = order.delivery_address || order.data?.delivery_address || {}
+  const addrLat = Number(addr.latitude ?? addr.lat)
+  const addrLng = Number(addr.longitude ?? addr.lng)
+  if (isValidCoordinate(addrLat, addrLng)) {
+    return { lat: addrLat, lng: addrLng, isFallback: false }
+  }
+
+  // 3. Coordenadas GeoJSON / array [lng, lat] ou [lat, lng]
+  if (Array.isArray(addr.coordinates) && addr.coordinates.length >= 2) {
+    const c0 = Number(addr.coordinates[0])
+    const c1 = Number(addr.coordinates[1])
+    if (Math.abs(c1) <= 90 && Math.abs(c0) <= 180 && isValidCoordinate(c1, c0)) {
+      return { lat: c1, lng: c0, isFallback: false }
+    }
+  }
+
+  // 4. Cache de geocodificação pelo texto do endereço
+  const addrText = getOrderAddressText(order)
+  if (addrText && geocodeCache.has(addrText)) {
+    const cached = geocodeCache.get(addrText)
+    if (isValidCoordinate(cached.lat, cached.lng)) {
+      return { lat: cached.lat, lng: cached.lng, isFallback: false, isGeocoded: true }
+    }
+  }
+
+  // 5. Fallback determinístico ao redor da base da loja (-22.549, -41.975)
+  // Espalha os pedidos em círculo para que não fiquem exatamente uns em cima dos outros
+  const baseLat = -22.549
+  const baseLng = -41.975
+  const idx = typeof index === 'number' && index >= 0 ? index : 0
+  const angle = (idx % 12) * (Math.PI / 6)
+  const radius = 0.0025 + (Math.floor(idx / 12) * 0.0015)
+  const fallbackLat = baseLat + radius * Math.cos(angle)
+  const fallbackLng = baseLng + radius * Math.sin(angle)
+
+  return { lat: fallbackLat, lng: fallbackLng, isFallback: true }
+}
+
+const geocodeOrderAddress = async (order) => {
+  const addrText = getOrderAddressText(order)
+  if (!addrText || geocodeCache.has(addrText) || geocodingInProgress.has(addrText)) return
+  if (!import.meta.client) return
+
+  geocodingInProgress.add(addrText)
+  try {
+    let query = addrText
+    // Contexto de cidade/região caso não conste no endereço
+    if (!/rio das ostras|maca[eé]|casimiro|barra de s[aã]o jo[aã]o|rj|rio de janeiro/i.test(query)) {
+      query += ', Rio das Ostras - RJ, Brasil'
+    } else if (!/brasil|brazil/i.test(query)) {
+      query += ', Brasil'
+    }
+
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`
+    const data = await $fetch(url, {
+      headers: { 'Accept-Language': 'pt-BR' }
+    })
+
+    if (Array.isArray(data) && data.length > 0) {
+      const gLat = parseFloat(data[0].lat)
+      const gLng = parseFloat(data[0].lon)
+      if (isValidCoordinate(gLat, gLng)) {
+        geocodeCache.set(addrText, { lat: gLat, lng: gLng })
+        order.lat = gLat
+        order.lng = gLng
+        order._isFallback = false
+        
+        // Atualiza a exibição de pinos
+        if (userRole.value === 'admin') {
+          updateAdminPins()
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Geocode] Não foi possível geocodificar:', addrText, err)
+  } finally {
+    geocodingInProgress.delete(addrText)
+  }
+}
+
 // Helper unificado para calcular a taxa de entrega da zona
 const calculateOrderFee = (order) => {
   if (!order) return 0
-  const lat = order.lat || Number(order.delivery_address?.latitude)
-  const lng = order.lng || Number(order.delivery_address?.longitude)
-  if (lat && lng) {
+  const coords = getOrderCoords(order)
+  if (coords && coords.lat && coords.lng && !coords.isFallback) {
     for (const zone of deliveryZones.value) {
-      if (zone.polygon_points && isPointInPolygon([lat, lng], zone.polygon_points)) {
+      if (zone.polygon_points && isPointInPolygon([coords.lat, coords.lng], zone.polygon_points)) {
         return Number(zone.price) || 0
       }
     }
   }
+  // Se for fallback ou não achou zona no polígono, tenta a taxa que já veio no pedido
+  const directFee = Number(
+    order.delivery_fee ?? 
+    order.data?.delivery_fee ?? 
+    order.delivery_tax ?? 
+    order.data?.delivery_tax ?? 
+    order.fee ?? 
+    order.shipping_fee ?? 
+    0
+  )
+  if (directFee > 0) return directFee
+
   return 0
 }
 
@@ -540,12 +678,12 @@ const getOrderChannel = (order) => {
     return order.channel || 'all'
   }
 
-  const salesChannel = String(order.sales_channel || '').toLowerCase()
-  const deliveredBy = String(order.delivered_by || '').toLowerCase()
-  const channel = String(order.channel || '').toLowerCase()
-  const origin = String(order.origin || order.source || order.customer_origin || '').toLowerCase()
-  const extName = String(order.external_merchant_name || '').toLowerCase()
-  const obs = String(order.observation || '').toLowerCase()
+  const salesChannel = String(order.sales_channel || order.data?.sales_channel || '').toLowerCase()
+  const deliveredBy = String(order.delivered_by || order.data?.delivered_by || '').toLowerCase()
+  const channel = String(order.channel || order.data?.channel || '').toLowerCase()
+  const origin = String(order.origin || order.data?.origin || order.source || order.data?.source || order.customer_origin || '').toLowerCase()
+  const extName = String(order.external_merchant_name || order.data?.external_merchant_name || '').toLowerCase()
+  const obs = String(order.observation || order.data?.observation || '').toLowerCase()
 
   // Checagem iFood
   if (
@@ -593,7 +731,7 @@ const channelLabel = computed(() => {
 const pendingOrderInfo = computed(() => {
   if (!pendingOrder.value) return ''
   const num = getOrderNumber(pendingOrder.value)
-  const client = pendingOrder.value.customer?.name || pendingOrder.value.cliente || 'Cliente'
+  const client = pendingOrder.value.customer?.name || pendingOrder.value.data?.customer?.name || pendingOrder.value.cliente || 'Cliente'
   return `Pedido #${num} • ${client}`
 })
 
@@ -1239,7 +1377,14 @@ const getOrderNumber = (order, fallbackIndex) => {
   if (order.id === 'DEMO_TUTORIAL') return 'Demo'
 
   // Prioriza o identificador amigável/oficial do Cardápio Web (display_id, order_number, etc.)
-  const rawNum = order.display_id ?? order.order_number ?? order.number ?? order.short_id ?? order.code ?? order.id
+  const rawNum = order.display_id ?? 
+    order.data?.display_id ?? 
+    order.order_number ?? 
+    order.data?.order_number ?? 
+    order.number ?? 
+    order.short_id ?? 
+    order.code ?? 
+    order.id
   if (rawNum !== undefined && rawNum !== null && String(rawNum).trim() !== '') {
     const cleaned = String(rawNum).trim()
     return cleaned.startsWith('#') ? cleaned.slice(1) : cleaned
@@ -1500,17 +1645,28 @@ const startDeliveryTracking = () => {
 
       // Busca dados dos pedidos (poderiamos buscar do proxy, mas vamos pegar todos e filtrar)
       const summaryResponse = await $fetch('/api/cw/api/partner/v1/orders')
-      const allOrdersSummary = summaryResponse.data || summaryResponse || []
+      const allOrdersSummary = Array.isArray(summaryResponse?.data) 
+        ? summaryResponse.data 
+        : (Array.isArray(summaryResponse) ? summaryResponse : [])
       
-      
-      // Filtra os que são MEUS e estão ativos
-      const activeOrderStatuses = new Set(['waiting_confirmation', 'pending_payment', 'pending_online_payment', 'scheduled_confirmed', 'confirmed', 'ready', 'released', 'canceling'])
-      const myOrdersSummary = allOrdersSummary.filter(s => activeOrderStatuses.has(s.status) && myOrderIds.has(String(s.id)))
+      // Filtra os que são MEUS e estão ativos (excluindo os finalizados/cancelados)
+      const finishedStatuses = new Set([
+        'delivered', 'concluded', 'finalized', 'completed', 'finished',
+        'entregue', 'concluido', 'concluído', 'finalizado',
+        'canceled', 'cancelled', 'cancelado', 'rejected', 'rejeitado', 'declined'
+      ])
+      const myOrdersSummary = allOrdersSummary.filter(s => {
+        const st = String(s?.status || '').trim().toLowerCase()
+        return !finishedStatuses.has(st) && myOrderIds.has(String(s.id))
+      })
 
       const fullOrders = await Promise.all(myOrdersSummary.map(async (summary) => {
         try {
           const detail = await $fetch(`/api/cw/api/partner/v1/orders/${summary.id}`)
-          return { ...summary, ...detail }
+          const detailData = (detail && typeof detail === 'object' && 'data' in detail && detail.data && typeof detail.data === 'object' && !Array.isArray(detail.data)) 
+            ? detail.data 
+            : (detail || {})
+          return { ...summary, ...detailData }
         } catch (e) { return summary }
       }))
 
@@ -1553,9 +1709,14 @@ const startDeliveryTracking = () => {
         className: 'custom-moto-icon', iconSize: [40, 40], iconAnchor: [20, 20], popupAnchor: [0, -20]
       })
 
-      fullOrders.forEach((order) => {
-        const lat = order.lat || Number(order.delivery_address?.latitude)
-        const lng = order.lng || Number(order.delivery_address?.longitude)
+      fullOrders.forEach((order, index) => {
+        const coords = getOrderCoords(order, index)
+        const lat = coords.lat
+        const lng = coords.lng
+
+        if (coords.isFallback && !coords.isGeocoded) {
+          geocodeOrderAddress(order)
+        }
 
         if (lat && lng && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && (lat !== 0 || lng !== 0)) {
           const isThisRouteActive = activeRouteDest && String(activeRouteDest.orderId) === String(order.id)
@@ -1582,7 +1743,15 @@ const startDeliveryTracking = () => {
           }
 
           const orderNum = getOrderNumber(order)
-          let popupHtml = `<b>Sua Entrega #${orderNum}</b>${channelBadge}<br>${order.customer?.name || order.cliente || 'Cliente'}<br>Status: ${order.status}`
+          const addressText = getOrderAddressText(order)
+          const addressHtml = addressText 
+            ? `<div style="font-size: 11px; color: #cbd5e1; margin-top: 4px; line-height: 1.3;"><i class="ph ph-map-pin" style="color: #38bdf8;"></i> ${addressText}</div>` 
+            : ''
+          const fallbackWarning = coords.isFallback 
+            ? `<div style="font-size: 11px; color: #fbbf24; background: rgba(245, 158, 11, 0.15); border-left: 2px solid #f59e0b; padding: 3px 6px; border-radius: 4px; margin-top: 4px;"><i class="ph ph-warning"></i> Endereço sem GPS (Aproximado na base)</div>` 
+            : ''
+
+          let popupHtml = `<b>Sua Entrega #${orderNum}</b>${channelBadge}<br>${order.customer?.name || order.data?.customer?.name || order.cliente || 'Cliente'}<br>Status: ${order.status}${addressHtml}${fallbackWarning}`
           
           if (!isThisRouteActive) {
             popupHtml += `<br><button onclick="window.startRoute(${lat}, ${lng}, '${order.id}')" style="margin-top:10px; width:100%; background:#10b981; color:white; border:none; padding:6px; border-radius:4px; font-weight:bold; cursor:pointer;"><i class="ph ph-navigation-arrow" style="font-size: 1.2em; margin-right: 8px;"></i> Iniciar GPS (Traçar Rota)</button>`
@@ -1737,11 +1906,13 @@ const unassignDemo = async () => {
 
 const updateAdminPins = async () => {
   try {
-    const assignData = await $fetch('/api/assign')
+    const assignData = await $fetch('/api/assign').catch(() => [])
     const assignedMap = {}
-    assignData.forEach((a) => {
-      assignedMap[String(a.orderId)] = { motoboyId: a.motoboyId, motoboyName: a.motoboyName }
-    })
+    if (Array.isArray(assignData)) {
+      assignData.forEach((a) => {
+        assignedMap[String(a.orderId)] = { motoboyId: a.motoboyId, motoboyName: a.motoboyName }
+      })
+    }
 
     const currentOrderIds = new Set(cwOrders.value.map(o => String(o.id)))
 
@@ -1755,10 +1926,15 @@ const updateAdminPins = async () => {
 
     // Lógica para colocar pinos no mapa
     cwOrders.value.forEach((order, index) => {
-      const lat = order.lat || Number(order.delivery_address?.latitude)
-      const lng = order.lng || Number(order.delivery_address?.longitude)
+      const coords = getOrderCoords(order, index)
+      const lat = coords.lat
+      const lng = coords.lng
       const orderNum = getOrderNumber(order, index)
       const orderIdStr = String(order.id)
+
+      if (coords.isFallback && !coords.isGeocoded) {
+        geocodeOrderAddress(order)
+      }
 
       if (lat && lng && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && (lat !== 0 || lng !== 0)) {
         
@@ -1771,11 +1947,12 @@ const updateAdminPins = async () => {
         let pinGradient = 'linear-gradient(135deg, #9ca3af 0%, #4b5563 100%)' // Padrão Cinza
         let canAssign = true // Permite atribuir qualquer pedido ativo que ainda não tenha motoboy
         
-        if (order.status === 'confirmed') {
+        const st = String(order.status || '').toLowerCase()
+        if (st === 'confirmed' || st === 'in_production' || st === 'production') {
           pinGradient = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' // Azul
-        } else if (order.status === 'ready') {
+        } else if (st === 'ready' || st === 'prepared') {
           pinGradient = 'linear-gradient(135deg, #10b981 0%, #059669 100%)' // Verde
-        } else if (order.status === 'released' || order.status === 'dispatched') {
+        } else if (st === 'released' || st === 'dispatched' || st === 'delivering') {
           pinGradient = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' // Laranja
         }
         
@@ -1817,8 +1994,16 @@ const updateAdminPins = async () => {
           confirmBtnLabel = 'Confirmar Entrega 99Food'
         }
 
+        const addressText = getOrderAddressText(order)
+        const addressHtml = addressText 
+          ? `<div style="font-size: 11px; color: #cbd5e1; margin-top: 4px; line-height: 1.3;"><i class="ph ph-map-pin" style="color: #38bdf8;"></i> ${addressText}</div>` 
+          : ''
+        const fallbackWarning = coords.isFallback 
+          ? `<div style="font-size: 11px; color: #fbbf24; background: rgba(245, 158, 11, 0.15); border-left: 2px solid #f59e0b; padding: 3px 6px; border-radius: 4px; margin-top: 4px;"><i class="ph ph-warning"></i> Endereço sem GPS (Aproximado na base)</div>` 
+          : ''
+
         // Constrói o HTML do Popup
-        let popupHtml = `<b>${order.customer?.name || order.cliente || 'Cliente'} #${orderNum}</b>${channelTag}<br>Status: <strong>${order.status}</strong>${timeInfo}`
+        let popupHtml = `<b>${order.customer?.name || order.data?.customer?.name || order.cliente || 'Cliente'} #${orderNum}</b>${channelTag}<br>Status: <strong>${order.status}</strong>${timeInfo}${addressHtml}${fallbackWarning}`
         
         if (isAssigned) {
           popupHtml += `
@@ -2040,29 +2225,48 @@ const fetchCwOrders = async () => {
       console.warn('Erro ao checar status da loja', e)
     }
 
-    const allOrdersSummary = summaryResponse.data || summaryResponse || []
+    const allOrdersSummary = Array.isArray(summaryResponse?.data) 
+      ? summaryResponse.data 
+      : (Array.isArray(summaryResponse) ? summaryResponse : [])
 
-    const activeOrderStatuses = new Set([
-      'waiting_confirmation',
-      'pending_payment',
-      'pending_online_payment',
-      'scheduled_confirmed',
-      'confirmed',
-      'ready',
-      'released',
-      'canceling'
+    const finishedStatuses = new Set([
+      'delivered', 'concluded', 'finalized', 'completed', 'finished',
+      'entregue', 'concluido', 'concluído', 'finalizado',
+      'canceled', 'cancelled', 'cancelado', 'rejected', 'rejeitado', 'declined'
     ])
 
-    const activeOrdersSummary = allOrdersSummary.filter(summary => activeOrderStatuses.has(summary.status))
+    const activeOrdersSummary = allOrdersSummary.filter(summary => {
+      const st = String(summary?.status || '').trim().toLowerCase()
+      return !finishedStatuses.has(st)
+    })
 
     const fullOrders = await Promise.all(activeOrdersSummary.map(async (summary) => {
       try {
         const detail = await $fetch(`/api/cw/api/partner/v1/orders/${summary.id}`)
-        return { ...summary, ...detail }
+        const detailData = (detail && typeof detail === 'object' && 'data' in detail && detail.data && typeof detail.data === 'object' && !Array.isArray(detail.data)) 
+          ? detail.data 
+          : (detail || {})
+        return { ...summary, ...detailData }
       } catch (e) {
+        console.warn(`[CW Orders] Erro ao buscar detalhe do pedido ${summary.id}:`, e)
         return summary
       }
     }))
+
+    // Injeção do tutorial demonstrativo se estiver atribuído a algum motoboy
+    try {
+      const currentAssigns = await $fetch('/api/assign').catch(() => [])
+      if (Array.isArray(currentAssigns) && currentAssigns.some(a => String(a.orderId) === 'DEMO_TUTORIAL')) {
+        fullOrders.push({
+          id: 'DEMO_TUTORIAL',
+          status: 'ready',
+          created_at: new Date().toISOString(),
+          customer: { name: 'Joãozinho (Modo Tutorial)' },
+          lat: -22.540,
+          lng: -41.970
+        })
+      }
+    } catch (e) {}
     
     // Ordena de forma determinística por data de criação (mais antigos primeiro)
     // para que a chegada de novos pedidos não altere a posição dos pedidos já existentes
