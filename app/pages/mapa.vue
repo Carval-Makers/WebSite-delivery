@@ -674,6 +674,13 @@ const getOrderChannel = (order) => {
   return 'direct'
 }
 
+const isGpsChannel = (order) => {
+  if (!order) return false
+  if (order.id === 'DEMO_TUTORIAL') return true
+  const channel = getOrderChannel(order)
+  return channel === 'ifood' || channel === '99food'
+}
+
 const detectedChannel = computed(() => {
   if (!pendingOrder.value) return 'direct'
   return getOrderChannel(pendingOrder.value)
@@ -829,6 +836,7 @@ const returnedOrders = ref([])
 const selectedReassign = ref({})
 const isReassigning = ref(false)
 const cwOrders = ref([])
+const orderDetailCache = new Map() // Cache em memória dos detalhes de pedidos para evitar requisições repetidas
 const isLoading = ref(false)
 
 // Rastreamento (Polling)
@@ -980,6 +988,7 @@ onMounted(async () => {
 
   if (userRole.value === 'admin') {
     fetchStoreStatus()
+    fetchCwOrders() // Inicia busca dos pedidos imediatamente em paralelo com a montagem do Leaflet
   }
 
   // Inicializa Mapa
@@ -1007,6 +1016,11 @@ onMounted(async () => {
   
   const storeMarker = L.marker([-22.549, -41.975], { icon: storeIcon }).addTo(map)
   storeMarker.bindPopup("<b>Loja / Base</b><br>Alameda Campomar, 1435")
+
+  // Se os pedidos já tiverem carregado em paralelo enquanto o mapa montava, desenha imediatamente
+  if (userRole.value === 'admin' && cwOrders.value.length > 0) {
+    updateAdminPins()
+  }
 
   L.control.zoom({ position: 'bottomleft' }).addTo(map)
 
@@ -1651,14 +1665,29 @@ const startDeliveryTracking = () => {
         }
       }
       
-      // Filtra os que são MEUS e estão ativos
+      // Filtra os que são MEUS e estão ativos (e exclui pedidos diretos do site para manter o GPS rápido)
       const activeOrderStatuses = new Set(['waiting_confirmation', 'pending_payment', 'pending_online_payment', 'scheduled_confirmed', 'confirmed', 'ready', 'released', 'canceling'])
-      const myOrdersSummary = allOrdersSummary.filter(s => activeOrderStatuses.has(s.status) && myOrderIds.has(String(s.id)))
+      const myOrdersSummary = allOrdersSummary.filter(s => {
+        if (!activeOrderStatuses.has(s.status) || !myOrderIds.has(String(s.id))) return false
+        const salesCh = String(s.sales_channel || s.channel || s.origin || s.source || '').toLowerCase()
+        if (salesCh.includes('site') || salesCh.includes('cardapio') || salesCh.includes('website')) {
+          if (!salesCh.includes('ifood') && !salesCh.includes('99')) return false
+        }
+        return true
+      })
 
       const fullOrders = await Promise.all(myOrdersSummary.map(async (summary) => {
+        const summaryIdStr = String(summary.id)
+        const cached = orderDetailCache.get(summaryIdStr)
+        if (cached) {
+          return { ...cached, ...summary }
+        }
         try {
           const detail = await $fetch(`/api/cw/api/partner/v1/orders/${summary.id}`)
-          return { ...summary, ...detail }
+          const detailData = (detail && typeof detail === 'object' && 'data' in detail && detail.data && typeof detail.data === 'object' && !Array.isArray(detail.data)) ? detail.data : (detail || {})
+          const merged = { ...summary, ...detailData }
+          orderDetailCache.set(summaryIdStr, merged)
+          return merged
         } catch (e) { return summary }
       }))
 
@@ -1674,8 +1703,11 @@ const startDeliveryTracking = () => {
         })
       }
 
+      // Filtra apenas pedidos com geolocalização nativa (iFood, 99Food e modo DEMO), removendo pedidos diretos do site
+      const gpsOrders = fullOrders.filter(order => isGpsChannel(order))
+
       // Ordena de forma determinística por data de criação (mais antigos primeiro)
-      fullOrders.sort((a, b) => {
+      gpsOrders.sort((a, b) => {
         if (a.id === 'DEMO_TUTORIAL') return 1
         if (b.id === 'DEMO_TUTORIAL') return -1
         const timeA = a.created_at ? new Date(a.created_at).getTime() : 0
@@ -1684,9 +1716,9 @@ const startDeliveryTracking = () => {
         return String(a.id).localeCompare(String(b.id), undefined, { numeric: true })
       })
 
-      cwOrders.value = fullOrders
+      cwOrders.value = gpsOrders
 
-      const currentOrderIds = new Set(fullOrders.map(o => String(o.id)))
+      const currentOrderIds = new Set(gpsOrders.map(o => String(o.id)))
       
       // Remove apenas os que sumiram da lista
       Object.keys(orderMarkers).forEach(id => {
@@ -1701,7 +1733,7 @@ const startDeliveryTracking = () => {
         className: 'custom-moto-icon', iconSize: [40, 40], iconAnchor: [20, 20], popupAnchor: [0, -20]
       })
 
-      fullOrders.forEach((order) => {
+      gpsOrders.forEach((order) => {
         const lat = order.lat || Number(order.delivery_address?.latitude)
         const lng = order.lng || Number(order.delivery_address?.longitude)
 
@@ -1836,9 +1868,9 @@ const startAdminTracking = () => {
   fetchLocations()
   trackingInterval = setInterval(fetchLocations, 5000)
 
-  // Inicia também a busca automática dos pedidos (Cardápio Web) a cada 15 segundos
+  // Inicia também a busca automática dos pedidos (Cardápio Web) a cada 5 segundos
   fetchCwOrders()
-  setInterval(fetchCwOrders, 15000)
+  setInterval(fetchCwOrders, 5000)
 }
 
 
@@ -1900,6 +1932,7 @@ const unassignDemo = async () => {
 }
 
 const updateAdminPins = async () => {
+  if (!map) return
   try {
     const assignData = await $fetch('/api/assign')
     const assignedMap = {}
@@ -1919,6 +1952,7 @@ const updateAdminPins = async () => {
 
     // Lógica para colocar pinos no mapa
     cwOrders.value.forEach((order, index) => {
+      if (!isGpsChannel(order)) return
       const lat = order.lat || Number(order.delivery_address?.latitude)
       const lng = order.lng || Number(order.delivery_address?.longitude)
       const orderNum = getOrderNumber(order, index)
@@ -2218,8 +2252,11 @@ const fetchStoreStatus = async () => {
   }
 }
 
+let isFetchingOrders = false
 const fetchCwOrders = async () => {
   if (userRole.value !== 'admin') return
+  if (isFetchingOrders) return
+  isFetchingOrders = true
   try {
     // Atualiza status da loja em background
     fetchStoreStatus()
@@ -2239,20 +2276,46 @@ const fetchCwOrders = async () => {
       'canceling'
     ])
 
-    const activeOrdersSummary = allOrdersSummary.filter(summary => activeOrderStatuses.has(summary.status))
+    const activeOrdersSummary = allOrdersSummary.filter(summary => {
+      if (!activeOrderStatuses.has(summary.status)) return false
+      const salesCh = String(summary.sales_channel || summary.channel || summary.origin || summary.source || '').toLowerCase()
+      if (salesCh.includes('site') || salesCh.includes('cardapio') || salesCh.includes('website')) {
+        if (!salesCh.includes('ifood') && !salesCh.includes('99')) return false
+      }
+      return true
+    })
 
     const fullOrders = await Promise.all(activeOrdersSummary.map(async (summary) => {
+      const summaryIdStr = String(summary.id)
+      const cached = orderDetailCache.get(summaryIdStr)
+      if (cached) {
+        return { ...cached, ...summary }
+      }
       try {
         const detail = await $fetch(`/api/cw/api/partner/v1/orders/${summary.id}`)
-        return { ...summary, ...detail }
+        const detailData = (detail && typeof detail === 'object' && 'data' in detail && detail.data && typeof detail.data === 'object' && !Array.isArray(detail.data)) ? detail.data : (detail || {})
+        const merged = { ...summary, ...detailData }
+        orderDetailCache.set(summaryIdStr, merged)
+        return merged
       } catch (e) {
         return summary
       }
     }))
+
+    // Limpa do cache pedidos finalizados
+    const currentSummaryIds = new Set(allOrdersSummary.map(o => String(o.id)))
+    for (const cachedId of orderDetailCache.keys()) {
+      if (!currentSummaryIds.has(cachedId)) {
+        orderDetailCache.delete(cachedId)
+      }
+    }
     
+    // Filtra apenas pedidos com geolocalização nativa (iFood, 99Food e modo DEMO), removendo pedidos diretos do site
+    const gpsOrders = fullOrders.filter(order => isGpsChannel(order))
+
     // Ordena de forma determinística por data de criação (mais antigos primeiro)
     // para que a chegada de novos pedidos não altere a posição dos pedidos já existentes
-    fullOrders.sort((a, b) => {
+    gpsOrders.sort((a, b) => {
       if (a.id === 'DEMO_TUTORIAL') return 1
       if (b.id === 'DEMO_TUTORIAL') return -1
       const timeA = a.created_at ? new Date(a.created_at).getTime() : 0
@@ -2261,9 +2324,9 @@ const fetchCwOrders = async () => {
       return String(a.id).localeCompare(String(b.id), undefined, { numeric: true })
     })
 
-    cwOrders.value = fullOrders
+    cwOrders.value = gpsOrders
 
-    // Aciona a repintura dos pinos
+    // Aciona a repintura dos pinos instantaneamente
     updateAdminPins()
 
     // ⚡ DETECÇÃO DE CONFIRMAÇÃO DO CLIENTE / CARDÁPIO WEB (VISÃO ADMIN):
@@ -2271,6 +2334,8 @@ const fetchCwOrders = async () => {
     checkAdminAutoDeliveries(allOrdersSummary)
   } catch (error) {
     console.error('Erro ao buscar pedidos do Cardápio Web', error)
+  } finally {
+    isFetchingOrders = false
   }
 }
 
