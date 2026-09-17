@@ -692,18 +692,92 @@ const getZoneColor = (zone, index = 0) => {
   return ZONE_COLORS[Math.abs(hash) % ZONE_COLORS.length]
 }
 
-// Helper unificado para calcular a taxa de entrega da zona
+// Helper unificado para calcular a taxa de entrega (Cardápio Web, iFood, 99Food, Zonas de Entrega ou Histórico)
 const calculateOrderFee = (order) => {
   if (!order) return 0
-  const lat = order.lat || Number(order.delivery_address?.latitude)
-  const lng = order.lng || Number(order.delivery_address?.longitude)
-  if (lat && lng) {
+
+  // 1. Taxa informada diretamente nas propriedades do pedido
+  const directFee = order.delivery_fee ?? 
+                    order.delivery_price ?? 
+                    order.delivery_tax ?? 
+                    order.taxa_entrega ?? 
+                    order.taxa ??
+                    order.delivery?.fee ?? 
+                    order.delivery?.price ??
+                    order.shipping_fee ??
+                    order.delivery_amount ??
+                    order.payments_summary?.delivery_fee ?? 
+                    order.payments_summary?.delivery_tax
+  if (directFee !== undefined && directFee !== null) {
+    const num = Number(directFee)
+    if (!isNaN(num) && num > 0) return num
+  }
+
+  // 2. Se temos cache com detalhes desse pedido (lat/lng ou taxa completa)
+  const orderIdStr = String(order.id || '')
+  let lat = order.lat ?? (order.delivery_address?.latitude !== undefined ? Number(order.delivery_address.latitude) : null)
+  let lng = order.lng ?? (order.delivery_address?.longitude !== undefined ? Number(order.delivery_address.longitude) : null)
+
+  if ((lat === null || isNaN(lat)) && orderIdStr && typeof orderDetailCache !== 'undefined') {
+    const cached = orderDetailCache.get(orderIdStr)
+    if (cached) {
+      const cachedFee = cached.delivery_fee ?? 
+                        cached.delivery_price ?? 
+                        cached.delivery_tax ?? 
+                        cached.taxa_entrega ?? 
+                        cached.taxa ??
+                        cached.delivery?.fee ?? 
+                        cached.delivery?.price ??
+                        cached.shipping_fee ??
+                        cached.delivery_amount ??
+                        cached.payments_summary?.delivery_fee ?? 
+                        cached.payments_summary?.delivery_tax
+      if (cachedFee !== undefined && cachedFee !== null) {
+        const num = Number(cachedFee)
+        if (!isNaN(num) && num > 0) return num
+      }
+      lat = cached.lat ?? (cached.delivery_address?.latitude !== undefined ? Number(cached.delivery_address.latitude) : null)
+      lng = cached.lng ?? (cached.delivery_address?.longitude !== undefined ? Number(cached.delivery_address.longitude) : null)
+    }
+  }
+
+  // 3. Tenta calcular pela zona geográfica do mapa (polígono por coordenadas)
+  if (lat && lng && !isNaN(lat) && !isNaN(lng) && Array.isArray(deliveryZones.value)) {
     for (const zone of deliveryZones.value) {
       if (zone.polygon_points && isPointInPolygon([lat, lng], zone.polygon_points)) {
         return Number(zone.price) || 0
       }
     }
   }
+
+  // 4. Se não tem coordenadas ou não caiu no polígono, tenta casar bairro com o nome da zona de entrega
+  if (Array.isArray(deliveryZones.value) && deliveryZones.value.length > 0) {
+    const addr = order.delivery_address || order.address || {}
+    const neighborhood = String(addr.neighborhood || addr.bairro || order.bairro || addr.formatted_address || '').trim().toLowerCase()
+    if (neighborhood) {
+      for (const zone of deliveryZones.value) {
+        const zoneName = String(zone.name || '').trim().toLowerCase()
+        if (zoneName && (neighborhood.includes(zoneName) || zoneName.includes(neighborhood))) {
+          const price = Number(zone.price)
+          if (!isNaN(price) && price > 0) return price
+        }
+      }
+    }
+  }
+
+  // 5. Se o pedido foi gravado nas estatísticas de motoboy (motoboy_earnings)
+  if (orderIdStr && typeof motoboyEarnings !== 'undefined' && motoboyEarnings.value) {
+    for (const boyStat of Object.values(motoboyEarnings.value || {})) {
+      if (boyStat && Array.isArray(boyStat.orders)) {
+        const found = boyStat.orders.find(o => String(o.order_id || o.orderId) === orderIdStr)
+        if (found && found.fee) {
+          const num = Number(found.fee)
+          if (!isNaN(num) && num > 0) return num
+        }
+      }
+    }
+  }
+
   return 0
 }
 
@@ -768,6 +842,9 @@ const autoResolveDeliveredOrder = async (orderId, motoboyId, motoboyName, existi
           ? detail.data 
           : (detail || {})
         orderData = { ...(existingOrderData || {}), ...detailData }
+        if (typeof orderDetailCache !== 'undefined') {
+          orderDetailCache.set(idStr, sanitizeOrderForCache(orderData) || orderData)
+        }
       } catch (e) {
         orderData = existingOrderData || { id: idStr }
       }
@@ -929,7 +1006,7 @@ const executeConfirmDelivery = async (orderId) => {
     
     // --- Lógica da Taxa ---
     if (orderId !== 'DEMO_TUTORIAL') {
-      const order = cwOrders.value.find(o => String(o.id) === String(orderId))
+      const order = cwOrders.value.find(o => String(o.id) === String(orderId)) || (typeof orderDetailCache !== 'undefined' ? orderDetailCache.get(String(orderId)) : null)
       const fee = calculateOrderFee(order)
       updateDailyStats(fee, orderId)
     }
@@ -972,7 +1049,7 @@ const executeReturnDelivery = async (orderId) => {
     
     // --- Lógica da Taxa (Ganha a taxa mesmo devolvendo) ---
     if (orderId !== 'DEMO_TUTORIAL') {
-      const order = cwOrders.value.find(o => String(o.id) === String(orderId))
+      const order = cwOrders.value.find(o => String(o.id) === String(orderId)) || (typeof orderDetailCache !== 'undefined' ? orderDetailCache.get(String(orderId)) : null)
       const fee = calculateOrderFee(order)
       updateDailyStats(fee, orderId)
     }
@@ -1023,6 +1100,55 @@ const selectedReassign = ref({})
 const isReassigning = ref(false)
 const cwOrders = ref([])
 
+// Sanitiza e reduz o payload do pedido para apenas os campos essenciais para o mapa,
+// reduzindo de ~100KB para ~250 bytes por pedido, garantindo que o LocalStorage nunca atinja a cota.
+const sanitizeOrderForCache = (order) => {
+  if (!order || typeof order !== 'object') return null
+
+  const lat = order.lat ?? order.latitude ?? order.delivery_address?.latitude ?? order.delivery_address?.lat ?? null
+  const lng = order.lng ?? order.longitude ?? order.delivery_address?.longitude ?? order.delivery_address?.lng ?? null
+
+  const directFee = order.delivery_fee ?? 
+                    order.delivery_price ?? 
+                    order.delivery_tax ?? 
+                    order.taxa_entrega ?? 
+                    order.taxa ??
+                    order.delivery?.fee ?? 
+                    order.delivery?.price ??
+                    order.shipping_fee ??
+                    order.delivery_amount ??
+                    order.payments_summary?.delivery_fee ?? 
+                    order.payments_summary?.delivery_tax ?? null
+
+  const addr = order.delivery_address || order.address || {}
+
+  return {
+    id: order.id,
+    display_id: order.display_id ?? order.order_number ?? order.id,
+    status: order.status,
+    sales_channel: order.sales_channel ?? order.channel ?? order.origin ?? order.source ?? '',
+    created_at: order.created_at,
+    total: order.total ?? order.total_amount ?? order.valor ?? 0,
+    delivery_fee: directFee !== null && !isNaN(Number(directFee)) ? Number(directFee) : null,
+    lat: lat !== null && !isNaN(Number(lat)) ? Number(lat) : null,
+    lng: lng !== null && !isNaN(Number(lng)) ? Number(lng) : null,
+    customer: {
+      name: order.customer?.name || order.cliente || '',
+      phone: order.customer?.phone || order.customer?.mobile_phone || ''
+    },
+    delivery_address: {
+      street: addr.street || addr.logradouro || '',
+      number: addr.number || addr.numero || '',
+      neighborhood: addr.neighborhood || addr.bairro || order.bairro || '',
+      city: addr.city || addr.cidade || '',
+      formatted_address: addr.formatted_address || '',
+      latitude: lat !== null && !isNaN(Number(lat)) ? Number(lat) : null,
+      longitude: lng !== null && !isNaN(Number(lng)) ? Number(lng) : null,
+      reference: addr.reference || addr.ponto_referencia || ''
+    }
+  }
+}
+
 // Cache persistente em LocalStorage + Memória para detalhes de pedidos
 const loadDetailCacheFromStorage = () => {
   if (typeof window === 'undefined') return new Map()
@@ -1039,9 +1165,16 @@ const loadDetailCacheFromStorage = () => {
 const saveDetailCacheToStorage = (mapInstance) => {
   if (typeof window === 'undefined') return
   try {
-    const obj = Object.fromEntries(mapInstance)
+    const obj = {}
+    // Mantém no máximo os 100 pedidos mais recentes para nunca estourar a cota
+    const entries = Array.from(mapInstance.entries()).slice(-100)
+    for (const [k, v] of entries) {
+      obj[k] = sanitizeOrderForCache(v) || v
+    }
     localStorage.setItem('cw_order_detail_cache', JSON.stringify(obj))
-  } catch (e) {}
+  } catch (e) {
+    console.warn('Erro ao salvar cache de pedidos no LocalStorage:', e)
+  }
 }
 
 const orderDetailCache = loadDetailCacheFromStorage()
@@ -1839,9 +1972,11 @@ if (import.meta.client) {
 
 const hasOrderCoords = (ord) => {
   if (!ord) return false
-  const lat = ord.lat || Number(ord.delivery_address?.latitude)
-  const lng = ord.lng || Number(ord.delivery_address?.longitude)
-  return !!(lat && lng && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && (lat !== 0 || lng !== 0))
+  const lat = ord.lat ?? ord.latitude ?? ord.delivery_address?.latitude ?? ord.delivery_address?.lat
+  const lng = ord.lng ?? ord.longitude ?? ord.delivery_address?.longitude ?? ord.delivery_address?.lng
+  const numLat = Number(lat)
+  const numLng = Number(lng)
+  return !isNaN(numLat) && !isNaN(numLng) && Math.abs(numLat) <= 90 && Math.abs(numLng) <= 180 && (numLat !== 0 || numLng !== 0)
 }
 
 const sortGpsOrdersDeterministic = (orders) => {
@@ -2192,8 +2327,15 @@ const updateAdminPins = async (passedAssignData = null) => {
   if (!map) return
   try {
     let assignData = passedAssignData
-    if (!assignData) {
+    if (!assignData && (!todayAssignmentsMap.value || Object.keys(todayAssignmentsMap.value).length === 0)) {
       assignData = await $fetch('/api/assign').catch(() => null)
+    } else if (!assignData) {
+      // Dispara atualização em background se já temos dados locais em tela
+      $fetch('/api/assign').then(freshAssigns => {
+        if (Array.isArray(freshAssigns)) {
+          updateAdminPins(freshAssigns)
+        }
+      }).catch(() => {})
     }
     const assignedMap = {}
     const simpleAssignedMap = {}
@@ -2603,8 +2745,21 @@ const fetchCwOrders = async () => {
         try {
           const detail = await $fetch(`/api/cw/api/partner/v1/orders/${summary.id}`)
           const detailData = (detail && typeof detail === 'object' && 'data' in detail && detail.data && typeof detail.data === 'object' && !Array.isArray(detail.data)) ? detail.data : (detail || {})
-          const merged = { ...summary, ...detailData }
+          const rawMerged = { ...summary, ...detailData }
+          const merged = sanitizeOrderForCache(rawMerged) || rawMerged
           orderDetailCache.set(idStr, merged)
+
+          // ⚡ Renderização Progressiva/Incremental: Desenha o pino assim que este pedido individual responder
+          if (isGpsChannel(merged) && hasOrderCoords(merged)) {
+            const existingIdx = cwOrders.value.findIndex(o => String(o.id) === idStr)
+            if (existingIdx >= 0) {
+              cwOrders.value[existingIdx] = merged
+            } else {
+              cwOrders.value.push(merged)
+            }
+            sortGpsOrdersDeterministic(cwOrders.value)
+            updateAdminPins(assignData)
+          }
         } catch (e) {
           orderDetailCache.set(idStr, summary)
         }
@@ -2642,9 +2797,13 @@ const fetchCwOrders = async () => {
     // Salva estado final no localStorage para o próximo F5 ser instantâneo (< 0.2s)
     if (typeof window !== 'undefined') {
       try {
-        localStorage.setItem('cw_last_active_orders', JSON.stringify(finalGpsOrders))
-        localStorage.setItem('cw_last_today_orders', JSON.stringify(allOrdersSummary))
-      } catch (e) {}
+        const sanitizedActive = finalGpsOrders.map(sanitizeOrderForCache).filter(Boolean)
+        const sanitizedToday = allOrdersSummary.map(sanitizeOrderForCache).filter(Boolean)
+        localStorage.setItem('cw_last_active_orders', JSON.stringify(sanitizedActive))
+        localStorage.setItem('cw_last_today_orders', JSON.stringify(sanitizedToday))
+      } catch (e) {
+        console.warn('Erro ao salvar pedidos ativos no LocalStorage:', e)
+      }
     }
 
     // Aciona a repintura dos pinos instantaneamente
@@ -2850,36 +3009,7 @@ const isOrderFromToday = (order) => {
 }
 
 const getOrderFee = (order) => {
-  if (!order) return 0
-  // 1. Se veio nas propriedades do pedido (Cardápio Web, iFood ou 99Food)
-  const directFee = order.delivery_fee ?? 
-                    order.delivery_price ?? 
-                    order.delivery_tax ?? 
-                    order.taxa_entrega ?? 
-                    order.taxa ??
-                    order.delivery?.fee ?? 
-                    order.delivery?.price ??
-                    order.payments_summary?.delivery_fee ?? 
-                    order.payments_summary?.delivery_tax
-  if (directFee !== undefined && directFee !== null) {
-    const num = Number(directFee)
-    if (!isNaN(num) && num > 0) return num
-  }
-
-  // 2. Se o pedido foi gravado nas estatísticas de motoboy
-  const orderIdStr = String(order.id)
-  for (const boyStat of Object.values(motoboyEarnings.value || {})) {
-    if (boyStat && Array.isArray(boyStat.orders)) {
-      const found = boyStat.orders.find(o => String(o.orderId) === orderIdStr)
-      if (found && found.fee) return Number(found.fee)
-    }
-  }
-
-  // 3. Tenta calcular pela zona geográfica do mapa (se tiver coordenadas)
-  const zoneFee = calculateOrderFee(order)
-  if (zoneFee > 0) return zoneFee
-
-  return 0
+  return calculateOrderFee(order)
 }
 
 const formatOrderFee = (order) => {
@@ -3033,7 +3163,21 @@ const todayCounts = computed(() => {
 
 const filteredTodayOrders = computed(() => {
   const orders = Array.isArray(allTodayOrders.value) ? allTodayOrders.value : []
-  let list = orders.filter(o => isOrderFromToday(o))
+  let list = orders.map(o => {
+    const cached = orderDetailCache.get(String(o.id))
+    if (!cached) return o
+    const fee = (o.delivery_fee !== undefined && o.delivery_fee !== null && Number(o.delivery_fee) > 0) 
+      ? o.delivery_fee 
+      : (cached.delivery_fee ?? o.delivery_fee)
+    return {
+      ...cached,
+      ...o,
+      delivery_fee: fee,
+      lat: (o.lat || o.latitude) ?? cached.lat,
+      lng: (o.lng || o.longitude) ?? cached.lng,
+      delivery_address: { ...(cached.delivery_address || {}), ...(o.delivery_address || {}) }
+    }
+  }).filter(o => isOrderFromToday(o))
 
   if (todayOrdersFilter.value === 'open') {
     list = list.filter(o => isOrderOpen(o.status))
@@ -3075,7 +3219,8 @@ const fetchTodayOrders = async () => {
   try {
     const [summaryRes, assignData] = await Promise.all([
       $fetch('/api/cw/api/partner/v1/orders').catch(() => null),
-      $fetch('/api/assign').catch(() => null)
+      $fetch('/api/assign').catch(() => null),
+      userRole.value === 'admin' && typeof fetchMotoboyEarnings === 'function' ? fetchMotoboyEarnings().catch(() => null) : Promise.resolve()
     ])
     
     const rawOrders = (summaryRes && Array.isArray(summaryRes.data)) 
@@ -3086,7 +3231,25 @@ const fetchTodayOrders = async () => {
     if (rawOrders && rawOrders.length > 0) {
       allTodayOrders.value = rawOrders
       if (typeof window !== 'undefined') {
-        try { localStorage.setItem('cw_last_today_orders', JSON.stringify(rawOrders)) } catch(e) {}
+        try { 
+          const sanitizedToday = rawOrders.map(sanitizeOrderForCache).filter(Boolean)
+          localStorage.setItem('cw_last_today_orders', JSON.stringify(sanitizedToday)) 
+        } catch(e) {}
+      }
+
+      // ⚡ Busca em segundo plano detalhes de pedidos que ainda não estão no cache (para exibir taxas e bairros exatos)
+      const missingDetails = rawOrders.filter(o => !orderDetailCache.has(String(o.id))).slice(0, 15)
+      if (missingDetails.length > 0) {
+        Promise.allSettled(missingDetails.map(async (o) => {
+          try {
+            const detail = await $fetch(`/api/cw/api/partner/v1/orders/${o.id}`)
+            const detailData = (detail && typeof detail === 'object' && 'data' in detail && detail.data && typeof detail.data === 'object' && !Array.isArray(detail.data)) ? detail.data : (detail || {})
+            const merged = sanitizeOrderForCache({ ...o, ...detailData }) || { ...o, ...detailData }
+            orderDetailCache.set(String(o.id), merged)
+          } catch (e) {}
+        })).then(() => {
+          saveDetailCacheToStorage(orderDetailCache)
+        })
       }
     }
 
