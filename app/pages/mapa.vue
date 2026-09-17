@@ -1017,7 +1017,29 @@ const returnedOrders = ref([])
 const selectedReassign = ref({})
 const isReassigning = ref(false)
 const cwOrders = ref([])
-const orderDetailCache = new Map() // Cache em memória dos detalhes de pedidos para evitar requisições repetidas
+
+// Cache persistente em LocalStorage + Memória para detalhes de pedidos
+const loadDetailCacheFromStorage = () => {
+  if (typeof window === 'undefined') return new Map()
+  try {
+    const raw = localStorage.getItem('cw_order_detail_cache')
+    if (raw) {
+      const obj = JSON.parse(raw)
+      return new Map(Object.entries(obj))
+    }
+  } catch (e) {}
+  return new Map()
+}
+
+const saveDetailCacheToStorage = (mapInstance) => {
+  if (typeof window === 'undefined') return
+  try {
+    const obj = Object.fromEntries(mapInstance)
+    localStorage.setItem('cw_order_detail_cache', JSON.stringify(obj))
+  } catch (e) {}
+}
+
+const orderDetailCache = loadDetailCacheFromStorage()
 const isLoading = ref(false)
 
 // Estados do Modal "Pedidos de Hoje"
@@ -1027,6 +1049,30 @@ const isLoadingTodayOrders = ref(false)
 const todayOrdersFilter = ref('all') // 'all', 'open', 'route', 'delivered', 'canceled'
 const todayOrdersSearch = ref('')
 const todayAssignmentsMap = ref({})
+
+// ⚡ Hidratação instantânea do cache local para carregamento imediato (< 0.2s) no F5
+if (typeof window !== 'undefined') {
+  try {
+    const savedActiveOrders = localStorage.getItem('cw_last_active_orders')
+    if (savedActiveOrders) {
+      const parsed = JSON.parse(savedActiveOrders)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        cwOrders.value = parsed
+      }
+    }
+    const savedTodayOrders = localStorage.getItem('cw_last_today_orders')
+    if (savedTodayOrders) {
+      const parsedToday = JSON.parse(savedTodayOrders)
+      if (Array.isArray(parsedToday) && parsedToday.length > 0) {
+        allTodayOrders.value = parsedToday
+      }
+    }
+    const savedAssignments = localStorage.getItem('cw_last_assignments')
+    if (savedAssignments) {
+      todayAssignmentsMap.value = JSON.parse(savedAssignments)
+    }
+  } catch (e) {}
+}
 
 // Rastreamento (Polling)
 let trackingInterval = null
@@ -1786,6 +1832,24 @@ if (import.meta.client) {
   }
 }
 
+const hasOrderCoords = (ord) => {
+  if (!ord) return false
+  const lat = ord.lat || Number(ord.delivery_address?.latitude)
+  const lng = ord.lng || Number(ord.delivery_address?.longitude)
+  return !!(lat && lng && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && (lat !== 0 || lng !== 0))
+}
+
+const sortGpsOrdersDeterministic = (orders) => {
+  orders.sort((a, b) => {
+    if (a.id === 'DEMO_TUTORIAL') return 1
+    if (b.id === 'DEMO_TUTORIAL') return -1
+    const timeA = a.created_at ? new Date(a.created_at).getTime() : 0
+    const timeB = b.created_at ? new Date(b.created_at).getTime() : 0
+    if (timeA !== timeB) return timeA - timeB
+    return String(a.id).localeCompare(String(b.id), undefined, { numeric: true })
+  })
+}
+
 const startDeliveryTracking = () => {
   // Motoboy envia localização a cada 5 segundos
   const sendLocation = () => {
@@ -1871,6 +1935,10 @@ const startDeliveryTracking = () => {
         if (cached) {
           return { ...cached, ...summary }
         }
+        if (hasOrderCoords(summary)) {
+          orderDetailCache.set(summaryIdStr, summary)
+          return summary
+        }
         try {
           const detail = await $fetch(`/api/cw/api/partner/v1/orders/${summary.id}`)
           const detailData = (detail && typeof detail === 'object' && 'data' in detail && detail.data && typeof detail.data === 'object' && !Array.isArray(detail.data)) ? detail.data : (detail || {})
@@ -1879,6 +1947,8 @@ const startDeliveryTracking = () => {
           return merged
         } catch (e) { return summary }
       }))
+
+      saveDetailCacheToStorage(orderDetailCache)
 
       // INJEÇÃO DO PEDIDO TUTORIAL (DEMO)
       if (myOrderIds.has('DEMO_TUTORIAL')) {
@@ -1896,14 +1966,7 @@ const startDeliveryTracking = () => {
       const gpsOrders = fullOrders.filter(order => isGpsChannel(order))
 
       // Ordena de forma determinística por data de criação (mais antigos primeiro)
-      gpsOrders.sort((a, b) => {
-        if (a.id === 'DEMO_TUTORIAL') return 1
-        if (b.id === 'DEMO_TUTORIAL') return -1
-        const timeA = a.created_at ? new Date(a.created_at).getTime() : 0
-        const timeB = b.created_at ? new Date(b.created_at).getTime() : 0
-        if (timeA !== timeB) return timeA - timeB
-        return String(a.id).localeCompare(String(b.id), undefined, { numeric: true })
-      })
+      sortGpsOrdersDeterministic(gpsOrders)
 
       cwOrders.value = gpsOrders
 
@@ -2120,17 +2183,29 @@ const unassignDemo = async () => {
   }
 }
 
-const updateAdminPins = async () => {
+const updateAdminPins = async (passedAssignData = null) => {
   if (!map) return
   try {
-    const assignData = await $fetch('/api/assign')
+    let assignData = passedAssignData
+    if (!assignData) {
+      assignData = await $fetch('/api/assign').catch(() => null)
+    }
     const assignedMap = {}
     const simpleAssignedMap = {}
-    assignData.forEach((a) => {
-      assignedMap[String(a.orderId)] = { motoboyId: a.motoboyId, motoboyName: a.motoboyName }
-      simpleAssignedMap[String(a.orderId)] = a.motoboyName
-    })
-    todayAssignmentsMap.value = simpleAssignedMap
+    if (Array.isArray(assignData)) {
+      assignData.forEach((a) => {
+        assignedMap[String(a.orderId)] = { motoboyId: a.motoboyId, motoboyName: a.motoboyName }
+        simpleAssignedMap[String(a.orderId)] = a.motoboyName
+      })
+      todayAssignmentsMap.value = simpleAssignedMap
+      if (typeof window !== 'undefined') {
+        try { localStorage.setItem('cw_last_assignments', JSON.stringify(simpleAssignedMap)) } catch(e) {}
+      }
+    } else if (todayAssignmentsMap.value) {
+      Object.entries(todayAssignmentsMap.value).forEach(([ordId, boyName]) => {
+        assignedMap[ordId] = { motoboyName: boyName }
+      })
+    }
 
     const currentOrderIds = new Set(cwOrders.value.map(o => String(o.id)))
 
@@ -2453,7 +2528,11 @@ const fetchCwOrders = async () => {
     // Atualiza status da loja em background
     fetchStoreStatus()
 
-    const summaryResponse = await $fetch('/api/cw/api/partner/v1/orders')
+    // ⚡ 1. Busca em paralelo resumo de pedidos da Cardápio Web e atribuições do banco
+    const [summaryResponse, assignData] = await Promise.all([
+      $fetch('/api/cw/api/partner/v1/orders').catch(() => []),
+      $fetch('/api/assign').catch(() => [])
+    ])
 
     const allOrdersSummary = summaryResponse.data || summaryResponse || []
     allTodayOrders.value = allOrdersSummary
@@ -2478,52 +2557,90 @@ const fetchCwOrders = async () => {
       return true
     })
 
-    const fullOrders = await Promise.all(activeOrdersSummary.map(async (summary) => {
+    // ⚡ 2. FASE 1: RENDERIZAÇÃO INSTANTÂNEA
+    // Usa o cache persistente ou dados que já têm coordenadas no resumo para desenhar os pinos IMEDIATAMENTE
+    const quickOrders = activeOrdersSummary.map(summary => {
       const summaryIdStr = String(summary.id)
       const cached = orderDetailCache.get(summaryIdStr)
       if (cached) {
         return { ...cached, ...summary }
       }
-      try {
-        const detail = await $fetch(`/api/cw/api/partner/v1/orders/${summary.id}`)
-        const detailData = (detail && typeof detail === 'object' && 'data' in detail && detail.data && typeof detail.data === 'object' && !Array.isArray(detail.data)) ? detail.data : (detail || {})
-        const merged = { ...summary, ...detailData }
-        orderDetailCache.set(summaryIdStr, merged)
-        return merged
-      } catch (e) {
-        return summary
+      return summary
+    })
+
+    const readyGpsOrders = quickOrders.filter(order => isGpsChannel(order) && hasOrderCoords(order))
+    if (readyGpsOrders.length > 0) {
+      sortGpsOrdersDeterministic(readyGpsOrders)
+      cwOrders.value = readyGpsOrders
+      updateAdminPins(assignData) // Pinos aparecem na tela sem esperar requisições lentas!
+    }
+
+    // ⚡ 3. FASE 2: BUSCA DETALHES APENAS DOS PEDIDOS QUE REALMENTE FALTAM COORDENADAS
+    const missingDetailOrders = activeOrdersSummary.filter(summary => {
+      const idStr = String(summary.id)
+      const cached = orderDetailCache.get(idStr)
+      if (cached && hasOrderCoords(cached)) return false
+      if (hasOrderCoords(summary)) {
+        orderDetailCache.set(idStr, summary)
+        return false
       }
-    }))
+      return true
+    })
+
+    if (missingDetailOrders.length > 0) {
+      await Promise.allSettled(missingDetailOrders.map(async (summary) => {
+        const idStr = String(summary.id)
+        try {
+          const detail = await $fetch(`/api/cw/api/partner/v1/orders/${summary.id}`)
+          const detailData = (detail && typeof detail === 'object' && 'data' in detail && detail.data && typeof detail.data === 'object' && !Array.isArray(detail.data)) ? detail.data : (detail || {})
+          const merged = { ...summary, ...detailData }
+          orderDetailCache.set(idStr, merged)
+        } catch (e) {
+          orderDetailCache.set(idStr, summary)
+        }
+      }))
+    }
+
+    // Salva o cache de detalhes no localStorage
+    saveDetailCacheToStorage(orderDetailCache)
 
     // Limpa do cache pedidos finalizados
     const currentSummaryIds = new Set(allOrdersSummary.map(o => String(o.id)))
+    let cacheCleaned = false
     for (const cachedId of orderDetailCache.keys()) {
       if (!currentSummaryIds.has(cachedId)) {
         orderDetailCache.delete(cachedId)
+        cacheCleaned = true
       }
     }
+    if (cacheCleaned) {
+      saveDetailCacheToStorage(orderDetailCache)
+    }
     
-    // Filtra apenas pedidos com geolocalização nativa (iFood, 99Food e modo DEMO), removendo pedidos diretos do site
-    const gpsOrders = fullOrders.filter(order => isGpsChannel(order))
-
-    // Ordena de forma determinística por data de criação (mais antigos primeiro)
-    // para que a chegada de novos pedidos não altere a posição dos pedidos já existentes
-    gpsOrders.sort((a, b) => {
-      if (a.id === 'DEMO_TUTORIAL') return 1
-      if (b.id === 'DEMO_TUTORIAL') return -1
-      const timeA = a.created_at ? new Date(a.created_at).getTime() : 0
-      const timeB = b.created_at ? new Date(b.created_at).getTime() : 0
-      if (timeA !== timeB) return timeA - timeB
-      return String(a.id).localeCompare(String(b.id), undefined, { numeric: true })
+    // Monta a lista completa e final
+    const fullOrders = activeOrdersSummary.map(summary => {
+      const idStr = String(summary.id)
+      const cached = orderDetailCache.get(idStr)
+      return cached ? { ...cached, ...summary } : summary
     })
 
-    cwOrders.value = gpsOrders
+    const finalGpsOrders = fullOrders.filter(order => isGpsChannel(order))
+    sortGpsOrdersDeterministic(finalGpsOrders)
+
+    cwOrders.value = finalGpsOrders
+
+    // Salva estado final no localStorage para o próximo F5 ser instantâneo (< 0.2s)
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('cw_last_active_orders', JSON.stringify(finalGpsOrders))
+        localStorage.setItem('cw_last_today_orders', JSON.stringify(allOrdersSummary))
+      } catch (e) {}
+    }
 
     // Aciona a repintura dos pinos instantaneamente
-    updateAdminPins()
+    updateAdminPins(assignData)
 
     // ⚡ DETECÇÃO DE CONFIRMAÇÃO DO CLIENTE / CARDÁPIO WEB (VISÃO ADMIN):
-    // Roda em segundo plano para creditar taxa e entrega caso cliente tenha confirmado
     checkAdminAutoDeliveries(allOrdersSummary)
   } catch (error) {
     console.error('Erro ao buscar pedidos do Cardápio Web', error)
