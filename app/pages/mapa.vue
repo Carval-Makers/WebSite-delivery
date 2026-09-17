@@ -20,6 +20,18 @@
       </div>
     </div>
 
+    <!-- Botão Olho - Ver Pedidos de Hoje (Canto Superior Direito) -->
+    <button 
+      v-if="userRole === 'admin'"
+      class="btn-today-orders"
+      @click="toggleTodayOrders"
+      title="Ver todos os pedidos de hoje"
+    >
+      <i class="ph ph-eye" style="font-size: 1.3em; color: #38bdf8;"></i>
+      <span class="btn-today-label">Pedidos de Hoje</span>
+      <span v-if="todayCounts.total > 0" class="btn-today-badge">{{ todayCounts.total }}</span>
+    </button>
+
     <!-- Fab Admin "Motoboy" -->
     <button 
       v-if="userRole === 'admin'" 
@@ -437,6 +449,175 @@
       </div>
     </div>
 
+    <!-- Modal: Todos os Pedidos de Hoje -->
+    <div v-if="isTodayOrdersOpen" class="today-modal-overlay" @click.self="isTodayOrdersOpen = false">
+      <div class="today-modal-card">
+        <!-- Header -->
+        <div class="today-modal-header">
+          <div class="today-modal-title">
+            <div class="today-title-icon">
+              <i class="ph ph-eye"></i>
+            </div>
+            <div>
+              <h2>Pedidos de Hoje</h2>
+              <span class="today-modal-subtitle">
+                {{ todayCounts.total }} {{ todayCounts.total === 1 ? 'pedido registrado' : 'pedidos registrados' }}
+              </span>
+            </div>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-icon" @click="fetchTodayOrders" :disabled="isLoadingTodayOrders" title="Atualizar pedidos">
+              <i class="ph ph-arrows-clockwise" :class="{ 'spin-anim': isLoadingTodayOrders }" style="font-size: 1.2em;"></i>
+            </button>
+            <button class="btn-icon" @click="isTodayOrdersOpen = false" title="Fechar">
+              <i class="ph ph-x" style="font-size: 1.2em;"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Filtros e Busca -->
+        <div class="today-filters-bar">
+          <div class="today-search-wrap">
+            <i class="ph ph-magnifying-glass search-icon"></i>
+            <input 
+              type="text" 
+              v-model="todayOrdersSearch" 
+              placeholder="Buscar por nº, cliente, canal ou motoboy..." 
+              class="today-search-input"
+            />
+            <button v-if="todayOrdersSearch" class="btn-clear-search" @click="todayOrdersSearch = ''">
+              <i class="ph ph-x"></i>
+            </button>
+          </div>
+
+          <div class="today-chips">
+            <button 
+              class="today-chip" 
+              :class="{ active: todayOrdersFilter === 'all' }" 
+              @click="todayOrdersFilter = 'all'"
+            >
+              Todos ({{ todayCounts.total }})
+            </button>
+            <button 
+              class="today-chip" 
+              :class="{ active: todayOrdersFilter === 'open' }" 
+              @click="todayOrdersFilter = 'open'"
+            >
+              Em Aberto ({{ todayCounts.open }})
+            </button>
+            <button 
+              class="today-chip" 
+              :class="{ active: todayOrdersFilter === 'route' }" 
+              @click="todayOrdersFilter = 'route'"
+            >
+              Em Rota ({{ todayCounts.route }})
+            </button>
+            <button 
+              class="today-chip" 
+              :class="{ active: todayOrdersFilter === 'delivered' }" 
+              @click="todayOrdersFilter = 'delivered'"
+            >
+              Entregues ({{ todayCounts.delivered }})
+            </button>
+            <button 
+              v-if="todayCounts.canceled > 0"
+              class="today-chip" 
+              :class="{ active: todayOrdersFilter === 'canceled' }" 
+              @click="todayOrdersFilter = 'canceled'"
+            >
+              Cancelados ({{ todayCounts.canceled }})
+            </button>
+          </div>
+        </div>
+
+        <!-- Lista de Pedidos -->
+        <div class="today-orders-list">
+          <div v-if="isLoadingTodayOrders && allTodayOrders.length === 0" class="today-loading-state">
+            <div class="loader-mini"></div>
+            <span>Carregando pedidos de hoje...</span>
+          </div>
+
+          <div v-else-if="filteredTodayOrders.length === 0" class="today-empty-state">
+            <i class="ph ph-receipt" style="font-size: 2.2em; color: var(--color-text-muted);"></i>
+            <span v-if="todayOrdersSearch">Nenhum pedido encontrado para "{{ todayOrdersSearch }}"</span>
+            <span v-else>Nenhum pedido registrado hoje.</span>
+          </div>
+
+          <div 
+            v-else
+            v-for="order in filteredTodayOrders" 
+            :key="order.id" 
+            class="today-order-card"
+          >
+            <!-- Linha Superior: Número, Canal, Status e Horário -->
+            <div class="today-card-header">
+              <div class="today-card-left">
+                <span class="today-order-number">#{{ getOrderNumber(order) }}</span>
+                <span 
+                  class="today-channel-badge"
+                  :style="{ backgroundColor: getChannelBadgeInfo(order).bg, color: getChannelBadgeInfo(order).color }"
+                >
+                  {{ getChannelBadgeInfo(order).label }}
+                </span>
+              </div>
+              <div class="today-card-right">
+                <span class="today-status-badge" :class="getStatusClass(order.status)">
+                  {{ getStatusLabel(order.status) }}
+                </span>
+                <span class="today-order-time" v-if="order.created_at">
+                  <i class="ph ph-clock"></i> {{ formatOrderTime(order.created_at) }}
+                </span>
+              </div>
+            </div>
+
+            <!-- Linha do Meio: Cliente e Endereço -->
+            <div class="today-card-body">
+              <div class="today-customer-row">
+                <span class="today-customer-name">
+                  <i class="ph ph-user"></i>
+                  {{ order.customer?.name || order.cliente || 'Cliente' }}
+                </span>
+                <span v-if="formatOrderTotal(order)" class="today-order-total">
+                  {{ formatOrderTotal(order) }}
+                </span>
+              </div>
+
+              <div class="today-address-row" :title="formatAddress(order)">
+                <i class="ph ph-map-pin"></i>
+                <span>{{ formatAddress(order) }}</span>
+              </div>
+            </div>
+
+            <!-- Linha Inferior: Motoboy Atribuído e Ação de Localizar -->
+            <div class="today-card-footer">
+              <div class="today-motoboy-info">
+                <span v-if="todayAssignmentsMap[String(order.id)]" class="today-assigned-tag">
+                  <i class="ph ph-motorcycle"></i>
+                  Motoboy: <strong>{{ todayAssignmentsMap[String(order.id)] }}</strong>
+                </span>
+                <span v-else-if="!isOrderDelivered(order.status) && !String(order.status || '').toLowerCase().includes('cancel')" class="today-unassigned-tag">
+                  <i class="ph ph-hourglass"></i> Sem motoboy atribuído
+                </span>
+                <span v-else-if="isOrderDelivered(order.status)" class="today-concluded-tag">
+                  <i class="ph ph-check-circle"></i> Entrega finalizada
+                </span>
+              </div>
+
+              <!-- Botão Ver no Mapa (se tiver GPS ativo no mapa) -->
+              <button 
+                v-if="canFocusOnMap(order)" 
+                class="btn-focus-map"
+                @click="focusOrderOnMap(order)"
+                title="Centralizar no mapa"
+              >
+                <i class="ph ph-crosshair"></i> Ver no Mapa
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -838,6 +1019,14 @@ const isReassigning = ref(false)
 const cwOrders = ref([])
 const orderDetailCache = new Map() // Cache em memória dos detalhes de pedidos para evitar requisições repetidas
 const isLoading = ref(false)
+
+// Estados do Modal "Pedidos de Hoje"
+const isTodayOrdersOpen = ref(false)
+const allTodayOrders = ref([])
+const isLoadingTodayOrders = ref(false)
+const todayOrdersFilter = ref('all') // 'all', 'open', 'route', 'delivered', 'canceled'
+const todayOrdersSearch = ref('')
+const todayAssignmentsMap = ref({})
 
 // Rastreamento (Polling)
 let trackingInterval = null
@@ -1936,9 +2125,12 @@ const updateAdminPins = async () => {
   try {
     const assignData = await $fetch('/api/assign')
     const assignedMap = {}
+    const simpleAssignedMap = {}
     assignData.forEach((a) => {
       assignedMap[String(a.orderId)] = { motoboyId: a.motoboyId, motoboyName: a.motoboyName }
+      simpleAssignedMap[String(a.orderId)] = a.motoboyName
     })
+    todayAssignmentsMap.value = simpleAssignedMap
 
     const currentOrderIds = new Set(cwOrders.value.map(o => String(o.id)))
 
@@ -2264,6 +2456,7 @@ const fetchCwOrders = async () => {
     const summaryResponse = await $fetch('/api/cw/api/partner/v1/orders')
 
     const allOrdersSummary = summaryResponse.data || summaryResponse || []
+    allTodayOrders.value = allOrdersSummary
 
     const activeOrderStatuses = new Set([
       'waiting_confirmation',
@@ -2511,6 +2704,222 @@ const deleteDelivery = async (id) => {
 
 const triggerStopRoute = () => {
   if (window.stopRoute) window.stopRoute()
+}
+
+// --- MÉTODOS E COMPUTEDS: PEDIDOS DE HOJE ---
+const isOrderFromToday = (order) => {
+  if (!order) return false
+  if (!order.created_at) return true
+  try {
+    const orderTime = new Date(order.created_at).getTime()
+    const now = Date.now()
+    const diffHours = (now - orderTime) / (1000 * 60 * 60)
+    if (diffHours <= 24) return true
+    const orderDate = new Date(order.created_at)
+    const today = new Date()
+    return (
+      orderDate.getDate() === today.getDate() &&
+      orderDate.getMonth() === today.getMonth() &&
+      orderDate.getFullYear() === today.getFullYear()
+    )
+  } catch {
+    return true
+  }
+}
+
+const formatAddress = (order) => {
+  if (!order) return 'Endereço não informado'
+  const addr = order.delivery_address || order.data?.delivery_address || order.address
+  if (typeof addr === 'string') return addr
+  if (addr && typeof addr === 'object') {
+    if (addr.formatted_address) return addr.formatted_address
+    const parts = []
+    if (addr.street) parts.push(addr.street + (addr.number ? `, ${addr.number}` : ''))
+    if (addr.neighborhood) parts.push(addr.neighborhood)
+    if (addr.city) parts.push(addr.city)
+    if (parts.length > 0) return parts.join(' - ')
+  }
+  if (order.endereco) return order.endereco
+  if (order.customer?.address) return order.customer.address
+  return 'Entrega no balcão / Sem endereço'
+}
+
+const formatOrderTotal = (order) => {
+  if (!order) return ''
+  const val = order.total ?? order.total_amount ?? order.order_total ?? order.valor
+  if (val !== undefined && val !== null) {
+    const num = Number(val)
+    if (!isNaN(num) && num > 0) {
+      return `R$ ${num.toFixed(2).replace('.', ',')}`
+    }
+  }
+  return ''
+}
+
+const getStatusLabel = (status) => {
+  if (!status) return 'Desconhecido'
+  const s = String(status).toLowerCase()
+  if (s === 'waiting_confirmation') return 'Aguardando'
+  if (s === 'pending_payment' || s === 'pending_online_payment') return 'Pagamento'
+  if (s === 'confirmed' || s === 'scheduled_confirmed') return 'Em Preparo'
+  if (s === 'ready') return 'Pronto'
+  if (s === 'released') return 'Em Rota'
+  if (isOrderDelivered(s)) return 'Entregue'
+  if (s.includes('cancel')) return 'Cancelado'
+  return status
+}
+
+const getStatusClass = (status) => {
+  if (!status) return 'status-unknown'
+  const s = String(status).toLowerCase()
+  if (isOrderDelivered(s)) return 'status-delivered'
+  if (s === 'released') return 'status-route'
+  if (s === 'ready') return 'status-ready'
+  if (s === 'confirmed' || s === 'scheduled_confirmed') return 'status-prep'
+  if (s === 'waiting_confirmation' || s.includes('pending')) return 'status-waiting'
+  if (s.includes('cancel')) return 'status-canceled'
+  return 'status-other'
+}
+
+const getChannelBadgeInfo = (order) => {
+  const channel = getOrderChannel(order)
+  if (channel === 'ifood') {
+    return { label: 'iFood', bg: '#ea1d2c', color: '#ffffff' }
+  } else if (channel === '99food') {
+    return { label: '99Food', bg: '#ff8c00', color: '#ffffff' }
+  }
+  return { label: 'Site / Direto', bg: '#2563eb', color: '#ffffff' }
+}
+
+const canFocusOnMap = (order) => {
+  if (!order || !map) return false
+  const orderIdStr = String(order.id)
+  if (orderMarkers[orderIdStr]) return true
+  const lat = order.lat || Number(order.delivery_address?.latitude)
+  const lng = order.lng || Number(order.delivery_address?.longitude)
+  return !!(lat && lng && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && (lat !== 0 || lng !== 0))
+}
+
+const focusOrderOnMap = (order) => {
+  if (!map || !order) return
+  const orderIdStr = String(order.id)
+  const marker = orderMarkers[orderIdStr]
+  let lat = order.lat || Number(order.delivery_address?.latitude)
+  let lng = order.lng || Number(order.delivery_address?.longitude)
+
+  if (marker) {
+    const latLng = marker.getLatLng()
+    lat = latLng.lat
+    lng = latLng.lng
+  }
+
+  if (lat && lng) {
+    isTodayOrdersOpen.value = false
+    map.flyTo([lat, lng], 17, { duration: 1.2 })
+    if (marker) {
+      setTimeout(() => {
+        marker.openPopup()
+      }, 1200)
+    }
+  }
+}
+
+const todayCounts = computed(() => {
+  let total = 0
+  let open = 0
+  let route = 0
+  let delivered = 0
+  let canceled = 0
+
+  allTodayOrders.value.forEach(order => {
+    if (!isOrderFromToday(order)) return
+    total++
+    const s = String(order.status || '').toLowerCase()
+    if (isOrderDelivered(s)) {
+      delivered++
+    } else if (s.includes('cancel')) {
+      canceled++
+    } else if (s === 'released') {
+      route++
+    } else {
+      open++
+    }
+  })
+
+  return { total, open, route, delivered, canceled }
+})
+
+const filteredTodayOrders = computed(() => {
+  let list = allTodayOrders.value.filter(o => isOrderFromToday(o))
+
+  if (todayOrdersFilter.value === 'open') {
+    list = list.filter(o => {
+      const s = String(o.status || '').toLowerCase()
+      return !isOrderDelivered(s) && !s.includes('cancel') && s !== 'released'
+    })
+  } else if (todayOrdersFilter.value === 'route') {
+    list = list.filter(o => String(o.status || '').toLowerCase() === 'released')
+  } else if (todayOrdersFilter.value === 'delivered') {
+    list = list.filter(o => isOrderDelivered(o.status))
+  } else if (todayOrdersFilter.value === 'canceled') {
+    list = list.filter(o => String(o.status || '').toLowerCase().includes('cancel'))
+  }
+
+  const search = todayOrdersSearch.value.trim().toLowerCase()
+  if (search) {
+    list = list.filter(order => {
+      const num = String(getOrderNumber(order)).toLowerCase()
+      const client = String(order.customer?.name || order.cliente || '').toLowerCase()
+      const channel = String(order.sales_channel || order.channel || '').toLowerCase()
+      const motoboy = String(todayAssignmentsMap.value[String(order.id)] || '').toLowerCase()
+      const addr = String(formatAddress(order)).toLowerCase()
+      return (
+        num.includes(search) ||
+        client.includes(search) ||
+        channel.includes(search) ||
+        motoboy.includes(search) ||
+        addr.includes(search)
+      )
+    })
+  }
+
+  return list.sort((a, b) => {
+    const tA = a.created_at ? new Date(a.created_at).getTime() : 0
+    const tB = b.created_at ? new Date(b.created_at).getTime() : 0
+    return tB - tA
+  })
+})
+
+const fetchTodayOrders = async () => {
+  isLoadingTodayOrders.value = true
+  try {
+    const [summaryRes, assignData] = await Promise.all([
+      $fetch('/api/cw/api/partner/v1/orders').catch(() => []),
+      $fetch('/api/assign').catch(() => [])
+    ])
+    
+    const orders = summaryRes.data || summaryRes || []
+    allTodayOrders.value = orders
+
+    if (Array.isArray(assignData)) {
+      const assignedMap = {}
+      assignData.forEach((a) => {
+        assignedMap[String(a.orderId)] = a.motoboyName
+      })
+      todayAssignmentsMap.value = assignedMap
+    }
+  } catch (err) {
+    console.error('Erro ao buscar pedidos de hoje:', err)
+  } finally {
+    isLoadingTodayOrders.value = false
+  }
+}
+
+const toggleTodayOrders = () => {
+  isTodayOrdersOpen.value = !isTodayOrdersOpen.value
+  if (isTodayOrdersOpen.value) {
+    fetchTodayOrders()
+  }
 }
 </script>
 
@@ -3340,12 +3749,552 @@ const triggerStopRoute = () => {
   50% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
 }
 
+/* Botão Olho: Pedidos de Hoje */
+.btn-today-orders {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  color: #f8fafc;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-today-orders:hover {
+  background: rgba(30, 41, 59, 0.95);
+  border-color: rgba(56, 189, 248, 0.4);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5), 0 0 12px rgba(56, 189, 248, 0.25);
+}
+
+.btn-today-orders:active {
+  transform: translateY(0);
+}
+
+.btn-today-badge {
+  background: #38bdf8;
+  color: #0f172a;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  min-width: 18px;
+  text-align: center;
+  line-height: 1.2;
+}
+
+/* Modal Pedidos de Hoje */
+.today-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: todayModalFadeIn 0.2s ease-out;
+}
+
+@keyframes todayModalFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.today-modal-card {
+  background: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  width: 100%;
+  max-width: 720px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  animation: todayModalSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes todayModalSlideUp {
+  from { transform: translateY(20px) scale(0.98); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+.today-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(30, 41, 59, 0.4);
+}
+
+.today-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.today-title-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  color: #38bdf8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.today-modal-title h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #f8fafc;
+  letter-spacing: -0.01em;
+}
+
+.today-modal-subtitle {
+  font-size: 12px;
+  color: #94a3b8;
+  display: block;
+  margin-top: 2px;
+}
+
+.btn-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-icon:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.spin-anim {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.today-filters-bar {
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: rgba(15, 23, 42, 0.7);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.today-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.today-search-wrap .search-icon {
+  position: absolute;
+  left: 12px;
+  color: #64748b;
+  font-size: 16px;
+  pointer-events: none;
+}
+
+.today-search-input {
+  width: 100%;
+  background: #1e293b;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 9px 36px 9px 36px;
+  color: #f8fafc;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.today-search-input:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.today-search-input::placeholder {
+  color: #64748b;
+}
+
+.btn-clear-search {
+  position: absolute;
+  right: 10px;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.btn-clear-search:hover {
+  color: #ffffff;
+}
+
+.today-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.today-chips::-webkit-scrollbar {
+  height: 4px;
+}
+
+.today-chips::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.today-chip {
+  padding: 5px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.today-chip:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+}
+
+.today-chip.active {
+  background: #38bdf8;
+  border-color: #38bdf8;
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.today-orders-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.today-orders-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.today-orders-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+
+.today-loading-state,
+.today-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 16px;
+  color: #94a3b8;
+  font-size: 14px;
+  text-align: center;
+}
+
+.loader-mini {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(56, 189, 248, 0.2);
+  border-top-color: #38bdf8;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.today-order-card {
+  background: #1e293b;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: all 0.15s ease;
+}
+
+.today-order-card:hover {
+  background: #24334a;
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.today-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.today-card-left,
+.today-card-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.today-order-number {
+  font-weight: 800;
+  font-size: 15px;
+  color: #ffffff;
+}
+
+.today-channel-badge {
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.today-status-badge {
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.status-waiting {
+  background: rgba(234, 179, 8, 0.15);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+.status-prep {
+  background: rgba(249, 115, 22, 0.15);
+  color: #fb923c;
+  border: 1px solid rgba(249, 115, 22, 0.3);
+}
+
+.status-ready {
+  background: rgba(6, 182, 212, 0.15);
+  color: #22d3ee;
+  border: 1px solid rgba(6, 182, 212, 0.3);
+}
+
+.status-route {
+  background: rgba(14, 165, 233, 0.2);
+  color: #38bdf8;
+  border: 1px solid rgba(14, 165, 233, 0.4);
+}
+
+.status-delivered {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.status-canceled {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.status-other {
+  background: rgba(148, 163, 184, 0.15);
+  color: #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.today-order-time {
+  font-size: 11px;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.today-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.today-customer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.today-customer-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f1f5f9;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.today-customer-name i {
+  color: #38bdf8;
+}
+
+.today-order-total {
+  font-size: 14px;
+  font-weight: 700;
+  color: #10b981;
+}
+
+.today-address-row {
+  font-size: 12px;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.today-address-row i {
+  color: #ef4444;
+  flex-shrink: 0;
+}
+
+.today-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.today-motoboy-info {
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.today-assigned-tag {
+  color: #38bdf8;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.today-unassigned-tag {
+  color: #f59e0b;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.today-concluded-tag {
+  color: #10b981;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-focus-map {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: #38bdf8;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.btn-focus-map:hover {
+  background: #38bdf8;
+  color: #0f172a;
+}
+
 @media (max-width: 600px) {
-  .badge-wakelock {
-    top: 65px;
-    left: 16px;
-    padding: 5px 12px;
-    font-size: 12px;
+  .btn-today-orders {
+    top: 16px;
+    right: 16px;
+    padding: 10px;
+    border-radius: 50%;
+    width: 44px;
+    height: 44px;
+    justify-content: center;
+  }
+
+  .btn-today-orders .btn-today-label {
+    display: none;
+  }
+
+  .btn-today-orders .btn-today-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    padding: 2px 5px;
+    font-size: 10px;
+  }
+
+  .today-modal-card {
+    max-height: 94vh;
+    border-radius: 16px;
+  }
+
+  .today-modal-header {
+    padding: 14px 16px;
+  }
+
+  .today-filters-bar {
+    padding: 12px 16px;
+  }
+
+  .today-orders-list {
+    padding: 12px 16px;
   }
 }
 </style>
