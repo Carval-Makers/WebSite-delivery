@@ -578,8 +578,12 @@
                   {{ order.customer?.name || order.cliente || 'Cliente' }}
                 </span>
                 <div class="today-price-pills">
-                  <span class="today-order-fee-badge" :title="'Taxa de entrega deste pedido'">
-                    <i class="ph ph-motorcycle"></i> {{ formatOrderFee(order) }}
+                  <span 
+                    class="today-order-fee-badge" 
+                    :class="{ 'is-takeout': isTakeoutOrder(order) }"
+                    :title="isTakeoutOrder(order) ? 'Pedido para retirada no balcão (sem taxa de entrega)' : 'Taxa de entrega deste pedido'"
+                  >
+                    <i :class="isTakeoutOrder(order) ? 'ph ph-storefront' : 'ph ph-motorcycle'"></i> {{ formatOrderFee(order) }}
                   </span>
                   <span v-if="formatOrderTotal(order)" class="today-order-total" title="Total do pedido">
                     {{ formatOrderTotal(order) }}
@@ -692,6 +696,16 @@ const getZoneColor = (zone, index = 0) => {
   return ZONE_COLORS[Math.abs(hash) % ZONE_COLORS.length]
 }
 
+// Normalizador de texto para busca sem acentos e minúsculas
+const normalizeText = (str) => {
+  if (!str) return ''
+  return String(str)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
 // Helper unificado para calcular a taxa de entrega (Cardápio Web, iFood, 99Food, Zonas de Entrega ou Histórico)
 const calculateOrderFee = (order) => {
   if (!order) return 0
@@ -702,62 +716,113 @@ const calculateOrderFee = (order) => {
                     order.delivery_tax ?? 
                     order.taxa_entrega ?? 
                     order.taxa ??
+                    order.fee ??
+                    order.frete ??
+                    order.shipping_fee ??
+                    order.shipping_price ??
+                    order.shipping ??
+                    order.delivery_amount ??
+                    order.delivery_charge ??
+                    order.order_delivery_fee ??
+                    order.total_delivery_fee ??
                     order.delivery?.fee ?? 
                     order.delivery?.price ??
-                    order.shipping_fee ??
-                    order.delivery_amount ??
+                    order.delivery?.taxa ??
+                    order.delivery?.taxa_entrega ??
+                    order.delivery?.delivery_fee ??
+                    order.delivery?.amount ??
+                    order.delivery?.cost ??
+                    order.delivery?.value ??
                     order.payments_summary?.delivery_fee ?? 
-                    order.payments_summary?.delivery_tax
+                    order.payments_summary?.delivery_tax ??
+                    order.payments_summary?.delivery_price ??
+                    order.payments_summary?.delivery ??
+                    order.payments_summary?.shipping ??
+                    order.payments_summary?.taxa_entrega ??
+                    order.payments_summary?.taxa ??
+                    order.payment_summary?.delivery_fee ??
+                    order.payment_summary?.delivery_tax ??
+                    order.payment_summary?.delivery ??
+                    order.valores?.taxa_entrega ??
+                    order.valores?.entrega ??
+                    order.valores?.delivery_fee ??
+                    order.valores?.frete ??
+                    order.values?.delivery_fee ??
+                    order.values?.delivery ??
+                    order.values?.delivery_price ??
+                    order.values?.taxa_entrega ??
+                    order.values?.taxa ??
+                    order.price_summary?.delivery_fee ??
+                    order.price_summary?.delivery ??
+                    order.price_summary?.shipping ??
+                    order.charge_details?.delivery_fee ??
+                    order.data?.delivery_fee ??
+                    order.data?.delivery?.fee ??
+                    order.data?.payments_summary?.delivery_fee
   if (directFee !== undefined && directFee !== null) {
     const num = Number(directFee)
     if (!isNaN(num) && num > 0) return num
   }
 
-  // 2. Se temos cache com detalhes desse pedido (lat/lng ou taxa completa)
-  const orderIdStr = String(order.id || '')
-  let lat = order.lat ?? (order.delivery_address?.latitude !== undefined ? Number(order.delivery_address.latitude) : null)
-  let lng = order.lng ?? (order.delivery_address?.longitude !== undefined ? Number(order.delivery_address.longitude) : null)
+  // 2. Tenta calcular pela diferença entre Total e Subtotal (Total = Subtotal + Taxa)
+  const totalNum = Number(order.total ?? order.total_amount ?? order.valor ?? 0)
+  const subtotalNum = Number(order.subtotal ?? order.sub_total ?? order.items_total ?? order.products_total ?? 0)
+  if (totalNum > 0 && subtotalNum > 0 && totalNum > subtotalNum) {
+    const diff = Number((totalNum - subtotalNum).toFixed(2))
+    if (diff >= 1 && diff <= 50) return diff
+  }
 
-  if ((lat === null || isNaN(lat)) && orderIdStr && typeof orderDetailCache !== 'undefined') {
-    const cached = orderDetailCache.get(orderIdStr)
-    if (cached) {
-      const cachedFee = cached.delivery_fee ?? 
-                        cached.delivery_price ?? 
-                        cached.delivery_tax ?? 
-                        cached.taxa_entrega ?? 
-                        cached.taxa ??
-                        cached.delivery?.fee ?? 
-                        cached.delivery?.price ??
-                        cached.shipping_fee ??
-                        cached.delivery_amount ??
-                        cached.payments_summary?.delivery_fee ?? 
-                        cached.payments_summary?.delivery_tax
-      if (cachedFee !== undefined && cachedFee !== null) {
-        const num = Number(cachedFee)
-        if (!isNaN(num) && num > 0) return num
-      }
-      lat = cached.lat ?? (cached.delivery_address?.latitude !== undefined ? Number(cached.delivery_address.latitude) : null)
-      lng = cached.lng ?? (cached.delivery_address?.longitude !== undefined ? Number(cached.delivery_address.longitude) : null)
+  // 3. Se temos cache com detalhes desse pedido
+  const orderIdStr = String(order.id || '')
+  let cached = null
+  if (orderIdStr && typeof orderDetailCache !== 'undefined') {
+    cached = orderDetailCache.get(orderIdStr)
+    if (cached && cached !== order) {
+      const cachedFee = calculateOrderFee(cached)
+      if (cachedFee > 0) return cachedFee
     }
   }
 
-  // 3. Tenta calcular pela zona geográfica do mapa (polígono por coordenadas)
+  // 4. Tenta calcular pela zona geográfica do mapa (polígono por coordenadas)
+  let lat = order.lat ?? (order.delivery_address?.latitude !== undefined ? Number(order.delivery_address.latitude) : null) ?? (cached?.lat ?? (cached?.delivery_address?.latitude !== undefined ? Number(cached.delivery_address.latitude) : null))
+  let lng = order.lng ?? (order.delivery_address?.longitude !== undefined ? Number(order.delivery_address.longitude) : null) ?? (cached?.lng ?? (cached?.delivery_address?.longitude !== undefined ? Number(cached.delivery_address.longitude) : null))
+
   if (lat && lng && !isNaN(lat) && !isNaN(lng) && Array.isArray(deliveryZones.value)) {
     for (const zone of deliveryZones.value) {
       if (zone.polygon_points && isPointInPolygon([lat, lng], zone.polygon_points)) {
-        return Number(zone.price) || 0
+        const p = Number(zone.price)
+        if (!isNaN(p) && p > 0) return p
       }
     }
   }
 
-  // 4. Se não tem coordenadas ou não caiu no polígono, tenta casar bairro com o nome da zona de entrega
+  // 5. Se não tem coordenadas ou não caiu no polígono, tenta casar bairro/endereço com o nome da zona de entrega
   if (Array.isArray(deliveryZones.value) && deliveryZones.value.length > 0) {
-    const addr = order.delivery_address || order.address || {}
-    const neighborhood = String(addr.neighborhood || addr.bairro || order.bairro || addr.formatted_address || '').trim().toLowerCase()
-    if (neighborhood) {
+    const addr = order.delivery_address || cached?.delivery_address || order.address || cached?.address || {}
+    let fullAddr = ''
+    if (typeof addr === 'string') {
+      fullAddr = addr
+    } else if (addr && typeof addr === 'object') {
+      fullAddr = [
+        addr.street,
+        addr.number,
+        addr.neighborhood,
+        addr.bairro,
+        addr.city,
+        addr.cidade,
+        addr.formatted_address,
+        addr.reference
+      ].filter(Boolean).join(' ')
+    }
+    if (order.endereco) fullAddr += ' ' + order.endereco
+    if (order.cliente_endereco) fullAddr += ' ' + order.cliente_endereco
+    if (order.customer?.address) fullAddr += ' ' + (typeof order.customer.address === 'string' ? order.customer.address : JSON.stringify(order.customer.address))
+
+    const normAddr = normalizeText(fullAddr)
+    if (normAddr) {
       for (const zone of deliveryZones.value) {
-        const zoneName = String(zone.name || '').trim().toLowerCase()
-        if (zoneName && (neighborhood.includes(zoneName) || zoneName.includes(neighborhood))) {
+        const normZone = normalizeText(zone.name)
+        if (normZone && normAddr.includes(normZone)) {
           const price = Number(zone.price)
           if (!isNaN(price) && price > 0) return price
         }
@@ -765,7 +830,7 @@ const calculateOrderFee = (order) => {
     }
   }
 
-  // 5. Se o pedido foi gravado nas estatísticas de motoboy (motoboy_earnings)
+  // 6. Se o pedido foi gravado nas estatísticas de motoboy (motoboy_earnings)
   if (orderIdStr && typeof motoboyEarnings !== 'undefined' && motoboyEarnings.value) {
     for (const boyStat of Object.values(motoboyEarnings.value || {})) {
       if (boyStat && Array.isArray(boyStat.orders)) {
@@ -820,6 +885,9 @@ const isOrderDelivered = (status) => {
     s === 'finalized' ||
     s === 'completed' ||
     s === 'finished' ||
+    s === 'closed' ||
+    s === 'fechado' ||
+    s === 'encerrado' ||
     s === 'entregue' ||
     s === 'concluido' ||
     s === 'concluído'
@@ -1120,13 +1188,15 @@ const sanitizeOrderForCache = (order) => {
                     order.payments_summary?.delivery_fee ?? 
                     order.payments_summary?.delivery_tax ?? null
 
-  const addr = order.delivery_address || order.address || {}
+  const subtotalVal = order.subtotal ?? order.sub_total ?? order.items_total ?? null
 
   return {
     id: order.id,
     display_id: order.display_id ?? order.order_number ?? order.id,
     status: order.status,
     sales_channel: order.sales_channel ?? order.channel ?? order.origin ?? order.source ?? '',
+    type: order.type ?? order.order_type ?? order.delivery_type ?? '',
+    subtotal: subtotalVal !== null && !isNaN(Number(subtotalVal)) ? Number(subtotalVal) : null,
     created_at: order.created_at,
     total: order.total ?? order.total_amount ?? order.valor ?? 0,
     delivery_fee: directFee !== null && !isNaN(Number(directFee)) ? Number(directFee) : null,
@@ -1178,6 +1248,46 @@ const saveDetailCacheToStorage = (mapInstance) => {
 }
 
 const orderDetailCache = loadDetailCacheFromStorage()
+const cacheVersion = ref(0)
+
+const isTakeoutOrder = (order) => {
+  if (!order) return false
+  const s = String(
+    order.delivery_type || 
+    order.order_type || 
+    order.type || 
+    order.service_type || 
+    order.delivery_method || 
+    order.sales_channel || 
+    order.channel || 
+    ''
+  ).toLowerCase().trim()
+
+  if (
+    s === 'takeout' || 
+    s === 'take_away' || 
+    s === 'pickup' || 
+    s === 'balcao' || 
+    s === 'balcão' || 
+    s === 'retirada' || 
+    s === 'indoor' || 
+    s === 'mesa' || 
+    s === 'dine_in' ||
+    s.includes('retirada') ||
+    s.includes('balcao') ||
+    s.includes('balcão')
+  ) {
+    return true
+  }
+
+  const addr = order.delivery_address || order.address || order.customer?.address || order.endereco
+  const isNoAddr = !addr || (typeof addr === 'string' && (addr.toLowerCase().includes('balc') || addr.toLowerCase().includes('retirada') || addr.toLowerCase().includes('sem endereço') || addr.toLowerCase().includes('não informado')))
+  if (isNoAddr && (order.delivery_fee === 0 || order.taxa_entrega === 0)) {
+    return true
+  }
+
+  return false
+}
 const isLoading = ref(false)
 
 // Estados do Modal "Pedidos de Hoje"
@@ -3013,6 +3123,9 @@ const getOrderFee = (order) => {
 }
 
 const formatOrderFee = (order) => {
+  if (isTakeoutOrder(order)) {
+    return 'Balcão / Retirada'
+  }
   const fee = getOrderFee(order)
   if (fee > 0) {
     return `Taxa: R$ ${fee.toFixed(2).replace('.', ',')}`
@@ -3022,6 +3135,7 @@ const formatOrderFee = (order) => {
 
 const formatAddress = (order) => {
   if (!order) return 'Endereço não informado'
+  if (isTakeoutOrder(order)) return 'Retirada no balcão da loja'
   const addr = order.delivery_address || order.data?.delivery_address || order.address
   if (typeof addr === 'string') return addr
   if (addr && typeof addr === 'object') {
@@ -3073,7 +3187,7 @@ const isOrderOpen = (status) => {
 
 const getStatusLabel = (status) => {
   if (!status) return 'Desconhecido'
-  const s = String(status).toLowerCase()
+  const s = String(status).toLowerCase().trim()
   if (isOrderDelivered(s)) return 'Entregue'
   if (isOrderCanceled(s)) return 'Cancelado'
   if (isOrderInRoute(s)) return 'Em Rota'
@@ -3086,7 +3200,7 @@ const getStatusLabel = (status) => {
 
 const getStatusClass = (status) => {
   if (!status) return 'status-unknown'
-  const s = String(status).toLowerCase()
+  const s = String(status).toLowerCase().trim()
   if (isOrderDelivered(s)) return 'status-delivered'
   if (isOrderCanceled(s)) return 'status-canceled'
   if (isOrderInRoute(s)) return 'status-route'
@@ -3162,6 +3276,7 @@ const todayCounts = computed(() => {
 })
 
 const filteredTodayOrders = computed(() => {
+  const _cacheVer = cacheVersion.value
   const orders = Array.isArray(allTodayOrders.value) ? allTodayOrders.value : []
   let list = orders.map(o => {
     const cached = orderDetailCache.get(String(o.id))
@@ -3238,7 +3353,7 @@ const fetchTodayOrders = async () => {
       }
 
       // ⚡ Busca em segundo plano detalhes de pedidos que ainda não estão no cache (para exibir taxas e bairros exatos)
-      const missingDetails = rawOrders.filter(o => !orderDetailCache.has(String(o.id))).slice(0, 15)
+      const missingDetails = rawOrders.filter(o => !orderDetailCache.has(String(o.id))).slice(0, 50)
       if (missingDetails.length > 0) {
         Promise.allSettled(missingDetails.map(async (o) => {
           try {
@@ -3246,6 +3361,7 @@ const fetchTodayOrders = async () => {
             const detailData = (detail && typeof detail === 'object' && 'data' in detail && detail.data && typeof detail.data === 'object' && !Array.isArray(detail.data)) ? detail.data : (detail || {})
             const merged = sanitizeOrderForCache({ ...o, ...detailData }) || { ...o, ...detailData }
             orderDetailCache.set(String(o.id), merged)
+            cacheVersion.value++
           } catch (e) {}
         })).then(() => {
           saveDetailCacheToStorage(orderDetailCache)
@@ -4551,6 +4667,12 @@ const toggleTodayOrders = () => {
   font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.today-order-fee-badge.is-takeout {
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+  border-color: rgba(148, 163, 184, 0.28);
 }
 
 .today-order-total {
