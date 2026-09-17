@@ -577,9 +577,14 @@
                   <i class="ph ph-user"></i>
                   {{ order.customer?.name || order.cliente || 'Cliente' }}
                 </span>
-                <span v-if="formatOrderTotal(order)" class="today-order-total">
-                  {{ formatOrderTotal(order) }}
-                </span>
+                <div class="today-price-pills">
+                  <span class="today-order-fee-badge" :title="'Taxa de entrega deste pedido'">
+                    <i class="ph ph-motorcycle"></i> {{ formatOrderFee(order) }}
+                  </span>
+                  <span v-if="formatOrderTotal(order)" class="today-order-total" title="Total do pedido">
+                    {{ formatOrderTotal(order) }}
+                  </span>
+                </div>
               </div>
 
               <div class="today-address-row" :title="formatAddress(order)">
@@ -2534,8 +2539,13 @@ const fetchCwOrders = async () => {
       $fetch('/api/assign').catch(() => [])
     ])
 
-    const allOrdersSummary = summaryResponse.data || summaryResponse || []
-    allTodayOrders.value = allOrdersSummary
+    const allOrdersSummary = Array.isArray(summaryResponse?.data) 
+      ? summaryResponse.data 
+      : (Array.isArray(summaryResponse) ? summaryResponse : [])
+
+    if (allOrdersSummary.length > 0 || allTodayOrders.value.length === 0) {
+      allTodayOrders.value = allOrdersSummary
+    }
 
     const activeOrderStatuses = new Set([
       'waiting_confirmation',
@@ -2829,19 +2839,55 @@ const isOrderFromToday = (order) => {
   if (!order.created_at) return true
   try {
     const orderTime = new Date(order.created_at).getTime()
+    if (isNaN(orderTime)) return true
     const now = Date.now()
     const diffHours = (now - orderTime) / (1000 * 60 * 60)
-    if (diffHours <= 24) return true
-    const orderDate = new Date(order.created_at)
-    const today = new Date()
-    return (
-      orderDate.getDate() === today.getDate() &&
-      orderDate.getMonth() === today.getMonth() &&
-      orderDate.getFullYear() === today.getFullYear()
-    )
+    // Permite pedidos de até 36 horas atrás para cobrir com segurança virada de noite e fusos
+    return diffHours >= -2 && diffHours <= 36
   } catch {
     return true
   }
+}
+
+const getOrderFee = (order) => {
+  if (!order) return 0
+  // 1. Se veio nas propriedades do pedido (Cardápio Web, iFood ou 99Food)
+  const directFee = order.delivery_fee ?? 
+                    order.delivery_price ?? 
+                    order.delivery_tax ?? 
+                    order.taxa_entrega ?? 
+                    order.taxa ??
+                    order.delivery?.fee ?? 
+                    order.delivery?.price ??
+                    order.payments_summary?.delivery_fee ?? 
+                    order.payments_summary?.delivery_tax
+  if (directFee !== undefined && directFee !== null) {
+    const num = Number(directFee)
+    if (!isNaN(num) && num > 0) return num
+  }
+
+  // 2. Se o pedido foi gravado nas estatísticas de motoboy
+  const orderIdStr = String(order.id)
+  for (const boyStat of Object.values(motoboyEarnings.value || {})) {
+    if (boyStat && Array.isArray(boyStat.orders)) {
+      const found = boyStat.orders.find(o => String(o.orderId) === orderIdStr)
+      if (found && found.fee) return Number(found.fee)
+    }
+  }
+
+  // 3. Tenta calcular pela zona geográfica do mapa (se tiver coordenadas)
+  const zoneFee = calculateOrderFee(order)
+  if (zoneFee > 0) return zoneFee
+
+  return 0
+}
+
+const formatOrderFee = (order) => {
+  const fee = getOrderFee(order)
+  if (fee > 0) {
+    return `Taxa: R$ ${fee.toFixed(2).replace('.', ',')}`
+  }
+  return 'Taxa: R$ 0,00'
 }
 
 const formatAddress = (order) => {
@@ -2873,16 +2919,38 @@ const formatOrderTotal = (order) => {
   return ''
 }
 
+const isOrderInRoute = (status) => {
+  if (!status) return false
+  const s = String(status).trim().toLowerCase()
+  return (
+    s === 'released' ||
+    s === 'dispatched' ||
+    s === 'out_for_delivery' ||
+    s.includes('rota') ||
+    s.includes('despach')
+  )
+}
+
+const isOrderCanceled = (status) => {
+  if (!status) return false
+  const s = String(status).trim().toLowerCase()
+  return s.includes('cancel')
+}
+
+const isOrderOpen = (status) => {
+  return !isOrderDelivered(status) && !isOrderCanceled(status) && !isOrderInRoute(status)
+}
+
 const getStatusLabel = (status) => {
   if (!status) return 'Desconhecido'
   const s = String(status).toLowerCase()
+  if (isOrderDelivered(s)) return 'Entregue'
+  if (isOrderCanceled(s)) return 'Cancelado'
+  if (isOrderInRoute(s)) return 'Em Rota'
+  if (s === 'ready') return 'Pronto'
+  if (s === 'confirmed' || s === 'scheduled_confirmed') return 'Em Preparo'
   if (s === 'waiting_confirmation') return 'Aguardando'
   if (s === 'pending_payment' || s === 'pending_online_payment') return 'Pagamento'
-  if (s === 'confirmed' || s === 'scheduled_confirmed') return 'Em Preparo'
-  if (s === 'ready') return 'Pronto'
-  if (s === 'released') return 'Em Rota'
-  if (isOrderDelivered(s)) return 'Entregue'
-  if (s.includes('cancel')) return 'Cancelado'
   return status
 }
 
@@ -2890,11 +2958,11 @@ const getStatusClass = (status) => {
   if (!status) return 'status-unknown'
   const s = String(status).toLowerCase()
   if (isOrderDelivered(s)) return 'status-delivered'
-  if (s === 'released') return 'status-route'
+  if (isOrderCanceled(s)) return 'status-canceled'
+  if (isOrderInRoute(s)) return 'status-route'
   if (s === 'ready') return 'status-ready'
   if (s === 'confirmed' || s === 'scheduled_confirmed') return 'status-prep'
   if (s === 'waiting_confirmation' || s.includes('pending')) return 'status-waiting'
-  if (s.includes('cancel')) return 'status-canceled'
   return 'status-other'
 }
 
@@ -2911,10 +2979,7 @@ const getChannelBadgeInfo = (order) => {
 const canFocusOnMap = (order) => {
   if (!order || !map) return false
   const orderIdStr = String(order.id)
-  if (orderMarkers[orderIdStr]) return true
-  const lat = order.lat || Number(order.delivery_address?.latitude)
-  const lng = order.lng || Number(order.delivery_address?.longitude)
-  return !!(lat && lng && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && (lat !== 0 || lng !== 0))
+  return !!orderMarkers[orderIdStr]
 }
 
 const focusOrderOnMap = (order) => {
@@ -2948,15 +3013,15 @@ const todayCounts = computed(() => {
   let delivered = 0
   let canceled = 0
 
-  allTodayOrders.value.forEach(order => {
+  const orders = Array.isArray(allTodayOrders.value) ? allTodayOrders.value : []
+  orders.forEach(order => {
     if (!isOrderFromToday(order)) return
     total++
-    const s = String(order.status || '').toLowerCase()
-    if (isOrderDelivered(s)) {
+    if (isOrderDelivered(order.status)) {
       delivered++
-    } else if (s.includes('cancel')) {
+    } else if (isOrderCanceled(order.status)) {
       canceled++
-    } else if (s === 'released') {
+    } else if (isOrderInRoute(order.status)) {
       route++
     } else {
       open++
@@ -2967,19 +3032,17 @@ const todayCounts = computed(() => {
 })
 
 const filteredTodayOrders = computed(() => {
-  let list = allTodayOrders.value.filter(o => isOrderFromToday(o))
+  const orders = Array.isArray(allTodayOrders.value) ? allTodayOrders.value : []
+  let list = orders.filter(o => isOrderFromToday(o))
 
   if (todayOrdersFilter.value === 'open') {
-    list = list.filter(o => {
-      const s = String(o.status || '').toLowerCase()
-      return !isOrderDelivered(s) && !s.includes('cancel') && s !== 'released'
-    })
+    list = list.filter(o => isOrderOpen(o.status))
   } else if (todayOrdersFilter.value === 'route') {
-    list = list.filter(o => String(o.status || '').toLowerCase() === 'released')
+    list = list.filter(o => isOrderInRoute(o.status))
   } else if (todayOrdersFilter.value === 'delivered') {
     list = list.filter(o => isOrderDelivered(o.status))
   } else if (todayOrdersFilter.value === 'canceled') {
-    list = list.filter(o => String(o.status || '').toLowerCase().includes('cancel'))
+    list = list.filter(o => isOrderCanceled(o.status))
   }
 
   const search = todayOrdersSearch.value.trim().toLowerCase()
@@ -3011,12 +3074,21 @@ const fetchTodayOrders = async () => {
   isLoadingTodayOrders.value = true
   try {
     const [summaryRes, assignData] = await Promise.all([
-      $fetch('/api/cw/api/partner/v1/orders').catch(() => []),
-      $fetch('/api/assign').catch(() => [])
+      $fetch('/api/cw/api/partner/v1/orders').catch(() => null),
+      $fetch('/api/assign').catch(() => null)
     ])
     
-    const orders = summaryRes.data || summaryRes || []
-    allTodayOrders.value = orders
+    const rawOrders = (summaryRes && Array.isArray(summaryRes.data)) 
+      ? summaryRes.data 
+      : (Array.isArray(summaryRes) ? summaryRes : null)
+
+    // Só atualiza se recebeu uma lista válida, nunca limpa a lista se falhar!
+    if (rawOrders && rawOrders.length > 0) {
+      allTodayOrders.value = rawOrders
+      if (typeof window !== 'undefined') {
+        try { localStorage.setItem('cw_last_today_orders', JSON.stringify(rawOrders)) } catch(e) {}
+      }
+    }
 
     if (Array.isArray(assignData)) {
       const assignedMap = {}
@@ -3024,6 +3096,9 @@ const fetchTodayOrders = async () => {
         assignedMap[String(a.orderId)] = a.motoboyName
       })
       todayAssignmentsMap.value = assignedMap
+      if (typeof window !== 'undefined') {
+        try { localStorage.setItem('cw_last_assignments', JSON.stringify(assignedMap)) } catch(e) {}
+      }
     }
   } catch (err) {
     console.error('Erro ao buscar pedidos de hoje:', err)
@@ -4293,6 +4368,26 @@ const toggleTodayOrders = () => {
 
 .today-customer-name i {
   color: #38bdf8;
+}
+
+.today-price-pills {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.today-order-fee-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .today-order-total {
